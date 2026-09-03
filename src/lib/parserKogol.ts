@@ -7,6 +7,9 @@ export interface PelangganTunggakan {
   kategori: "AMR" | "NON-AMR" | "KCIC";
   kelompokTarif: "R" | "B" | "I" | "P" | "T" | "LAINNYA";
   rpTunggakan: number;
+  rbm: string;
+  regu: string;
+  idPetugas: string;
 }
 
 export interface RekapMetrik {
@@ -27,6 +30,8 @@ export interface HasilKogol {
   kcicOnly: { plgn: number; rp: number };
   semuaPelanggan: PelangganTunggakan[];
   rekapTarif: Record<string, { plgn: number; rp: number }>;
+  daftarRegu: string[];
+  daftarPetugas: { idPetugas: string; regu: string }[];
 }
 
 const NAMA_BULAN: Record<string, string> = {
@@ -111,6 +116,9 @@ export const parseExcelKogolBuffer = (
   let amrKcicRp = 0;
 
   const semuaPelanggan: PelangganTunggakan[] = [];
+  const setRegu = new Set<string>();
+  const setPetugas = new Map<string, string>(); // idPetugas -> regu
+
   const rekapTarif: Record<string, { plgn: number; rp: number }> = {
     R: { plgn: 0, rp: 0 },
     B: { plgn: 0, rp: 0 },
@@ -128,6 +136,31 @@ export const parseExcelKogolBuffer = (
     const kodeMr = String(row[3] || "").trim().toUpperCase();
     const namaPlgn = String(row[4] || "").trim().toUpperCase();
     const tarifDaya = String(row[5] || row[6] || "TARIF REG").trim().toUpperCase();
+
+    // Pembacaan kolom nomor RBM (biasanya berada di kolom ke-8 atau ke-9)
+    let rbmRaw = "";
+    for (let c = 6; c <= 11; c++) {
+      const val = String(row[c] || "").trim();
+      // Format RBM umumnya angka dengan panjang minimal 6 digit
+      if (/^\d{6,}$/.test(val)) {
+        rbmRaw = val;
+        break;
+      }
+    }
+    if (!rbmRaw) {
+      rbmRaw = String(row[7] || row[8] || "-").trim();
+    }
+
+    // Ekstraksi Regu (digit 4-5) & ID Petugas (digit 4-5-6)
+    // Di JavaScript indeks ke-3 s/d 5 adalah karakter ke-4 & ke-5
+    let regu = "-";
+    let idPetugas = "-";
+    if (rbmRaw.length >= 6 && /^\d+$/.test(rbmRaw)) {
+      regu = rbmRaw.substring(3, 5);
+      idPetugas = rbmRaw.substring(3, 6);
+      setRegu.add(regu);
+      setPetugas.set(idPetugas, regu);
+    }
 
     let rpRaw = row[13] !== undefined ? row[13] : row[row.length - 3];
     let rp =
@@ -154,7 +187,6 @@ export const parseExcelKogolBuffer = (
       kategori = "AMR";
     }
 
-    // Deteksi Kelompok Tarif
     let kelompok: "R" | "B" | "I" | "P" | "T" | "LAINNYA" = "LAINNYA";
     const hurufAwalTarif = tarifDaya.charAt(0);
     if (isKcic || hurufAwalTarif === "T") {
@@ -174,12 +206,19 @@ export const parseExcelKogolBuffer = (
         kategori,
         kelompokTarif: kelompok,
         rpTunggakan: rp,
+        rbm: rbmRaw,
+        regu,
+        idPetugas,
       });
     }
   }
 
-  // Urutkan pelanggan dari tunggakan tertinggi
   semuaPelanggan.sort((a, b) => b.rpTunggakan - a.rpTunggakan);
+
+  const daftarPetugas = Array.from(setPetugas.entries()).map(([id, rg]) => ({
+    idPetugas: id,
+    regu: rg,
+  })).sort((a, b) => a.idPetugas.localeCompare(b.idPetugas));
 
   return {
     periode: labelPeriode,
@@ -207,5 +246,7 @@ export const parseExcelKogolBuffer = (
     },
     semuaPelanggan,
     rekapTarif,
+    daftarRegu: Array.from(setRegu).sort(),
+    daftarPetugas,
   };
 };

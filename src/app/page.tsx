@@ -22,6 +22,8 @@ import {
   Square,
   FileText,
   Building2,
+  Users,
+  UserCheck,
 } from "lucide-react";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { parseExcelKogolBuffer, HasilKogol } from "@/lib/parserKogol";
@@ -60,6 +62,8 @@ export default function DashboardPage() {
   const [skenario, setSkenario] = useState<SkenarioSimulasi>("SEMUA");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [filterKategori, setFilterKategori] = useState<string>("SEMUA");
+  const [filterRegu, setFilterRegu] = useState<string>("SEMUA");
+  const [filterPetugas, setFilterPetugas] = useState<string>("SEMUA");
   const [simulasiLunas, setSimulasiLunas] = useState<Record<string, boolean>>({});
   const [activeTab, setActiveTab] = useState<"RINGKASAN" | "LEMBAR_KERJA">("RINGKASAN");
 
@@ -116,6 +120,8 @@ export default function DashboardPage() {
 
         setSelectedKey(key);
         setSimulasiLunas({});
+        setFilterRegu("SEMUA");
+        setFilterPetugas("SEMUA");
 
         const now = new Date();
         const formatted = new Intl.DateTimeFormat("id-ID", {
@@ -142,6 +148,8 @@ export default function DashboardPage() {
     setDataHistory({});
     setSelectedKey("");
     setSimulasiLunas({});
+    setFilterRegu("SEMUA");
+    setFilterPetugas("SEMUA");
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -193,16 +201,36 @@ export default function DashboardPage() {
     ? ((diffKcicRp / diffTotalRp) * 100).toFixed(1)
     : "0.0";
 
+  // Opsi Dropdown Petugas yang dinamis mengikuti pilihan Regu
+  const opsiPetugas = useMemo(() => {
+    if (!activeData?.daftarPetugas) return [];
+    if (filterRegu === "SEMUA") return activeData.daftarPetugas;
+    return activeData.daftarPetugas.filter((p) => p.regu === filterRegu);
+  }, [activeData, filterRegu]);
+
+  // Logika Filter Multikriteria: Teks, Kategori, Regu (digit 45), Petugas (digit 456)
   const filteredPelanggan = useMemo(() => {
     if (!activeData || !activeData.semuaPelanggan) return [];
     return activeData.semuaPelanggan.filter((p) => {
       const matchText =
         p.idpel.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.nama.toLowerCase().includes(searchQuery.toLowerCase());
+        p.nama.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        p.rbm.toLowerCase().includes(searchQuery.toLowerCase());
+
       const matchKategori = filterKategori === "SEMUA" || p.kategori === filterKategori;
-      return matchText && matchKategori;
+      const matchRegu = filterRegu === "SEMUA" || p.regu === filterRegu;
+      const matchPetugas = filterPetugas === "SEMUA" || p.idPetugas === filterPetugas;
+
+      return matchText && matchKategori && matchRegu && matchPetugas;
     });
-  }, [activeData, searchQuery, filterKategori]);
+  }, [activeData, searchQuery, filterKategori, filterRegu, filterPetugas]);
+
+  // Rekapitulasi Khusus Baris Terfilter
+  const rekapTerfilter = useMemo(() => {
+    const totalRp = filteredPelanggan.reduce((acc, p) => acc + p.rpTunggakan, 0);
+    const totalPlgn = filteredPelanggan.length;
+    return { totalRp, totalPlgn };
+  }, [filteredPelanggan]);
 
   const togglePelunasan = (idpel: string) => {
     setSimulasiLunas((prev) => ({
@@ -234,7 +262,7 @@ export default function DashboardPage() {
 
     const wb = XLSX.utils.book_new();
 
-    // SHEET 1: RINGKASAN EKSEKUTIF & KOMPARASI
+    // SHEET 1: RINGKASAN EKSEKUTIF
     const sheet1Data: any[][] = [
       ["PT PLN (PERSERO) UID JAKARTA RAYA"],
       ["UP3 JATINEGARA — BIDANG TRANSAKSI ENERGI"],
@@ -250,36 +278,12 @@ export default function DashboardPage() {
       ["Pencapaian Terhadap Target", `${capaianPersenSimulasi}%`],
       [],
       ["REKAPITULASI REALISASI SALDO MULTI-PERIODE (RUPIAH)"],
-      [
-        "Kategori",
-        "Jenis Pelanggan",
-        ...sortedKeys.map((k) => dataHistory[k].periode),
-      ],
-      [
-        "Dengan KCIC",
-        "AMR",
-        ...sortedKeys.map((k) => dataHistory[k].denganKcic.amrRp),
-      ],
-      [
-        "Dengan KCIC",
-        "NON-AMR",
-        ...sortedKeys.map((k) => dataHistory[k].denganKcic.nonAmrRp),
-      ],
-      [
-        "Tanpa KCIC",
-        "AMR",
-        ...sortedKeys.map((k) => dataHistory[k].tanpaKcic.amrRp),
-      ],
-      [
-        "Tanpa KCIC",
-        "NON-AMR",
-        ...sortedKeys.map((k) => dataHistory[k].tanpaKcic.nonAmrRp),
-      ],
-      [
-        "Khusus KCIC",
-        "AMR KCIC",
-        ...sortedKeys.map((k) => dataHistory[k].kcicOnly.rp),
-      ],
+      ["Kategori", "Jenis Pelanggan", ...sortedKeys.map((k) => dataHistory[k].periode)],
+      ["Dengan KCIC", "AMR", ...sortedKeys.map((k) => dataHistory[k].denganKcic.amrRp)],
+      ["Dengan KCIC", "NON-AMR", ...sortedKeys.map((k) => dataHistory[k].denganKcic.nonAmrRp)],
+      ["Tanpa KCIC", "AMR", ...sortedKeys.map((k) => dataHistory[k].tanpaKcic.amrRp)],
+      ["Tanpa KCIC", "NON-AMR", ...sortedKeys.map((k) => dataHistory[k].tanpaKcic.nonAmrRp)],
+      ["Khusus KCIC", "AMR KCIC", ...sortedKeys.map((k) => dataHistory[k].kcicOnly.rp)],
       [],
       ["SEGMENTASI TUNGGAKAN BERDASARKAN GOLONGAN TARIF"],
       ["Golongan Tarif", "Jumlah Pelanggan", "Nominal Tunggakan (Rp)"],
@@ -298,13 +302,7 @@ export default function DashboardPage() {
     ];
 
     const ws1 = XLSX.utils.aoa_to_sheet(sheet1Data);
-    ws1["!cols"] = [
-      { wch: 34 },
-      { wch: 22 },
-      { wch: 24 },
-      { wch: 24 },
-      { wch: 24 },
-    ];
+    ws1["!cols"] = [{ wch: 34 }, { wch: 22 }, { wch: 24 }, { wch: 24 }, { wch: 24 }];
     XLSX.utils.book_append_sheet(wb, ws1, "Ringkasan Eksekutif");
 
     // SHEET 2: TOP 10 PARETO PRIORITAS PENAGIHAN
@@ -312,7 +310,7 @@ export default function DashboardPage() {
       ["TOP 10 PELANGGAN SALDO TUNGGAKAN TERBESAR (PARETO 80/20)"],
       [`PERIODE: ${activeData.periode.toUpperCase()}`],
       [],
-      ["No", "ID Pelanggan", "Nama Pelanggan", "Tarif / Daya", "Segmen", "Nominal Tunggakan (Rp)", "Kontribusi (%)"],
+      ["No", "ID Pelanggan", "Nama Pelanggan", "Tarif / Daya", "No RBM", "Regu", "Petugas", "Segmen", "Nominal Tunggakan (Rp)", "Kontribusi (%)"],
     ];
 
     const top10List = (activeData.semuaPelanggan || []).slice(0, 10);
@@ -323,6 +321,9 @@ export default function DashboardPage() {
         p.idpel,
         p.nama,
         p.tarifDaya,
+        p.rbm,
+        p.regu,
+        p.idPetugas,
         p.kategori,
         p.rpTunggakan,
         `${kontribusi}%`,
@@ -330,31 +331,27 @@ export default function DashboardPage() {
     });
 
     const ws2 = XLSX.utils.aoa_to_sheet(top10Data);
-    ws2["!cols"] = [
-      { wch: 6 },
-      { wch: 18 },
-      { wch: 35 },
-      { wch: 16 },
-      { wch: 12 },
-      { wch: 24 },
-      { wch: 15 },
-    ];
+    ws2["!cols"] = [{ wch: 6 }, { wch: 18 }, { wch: 35 }, { wch: 16 }, { wch: 14 }, { wch: 8 }, { wch: 10 }, { wch: 12 }, { wch: 24 }, { wch: 15 }];
     XLSX.utils.book_append_sheet(wb, ws2, "Top 10 Prioritas");
 
-    // SHEET 3: DATA LENGKAP PELANGGAN & LEMBAR KERJA
+    // SHEET 3: DATA LENGKAP PELANGGAN DENGAN KOLOM RBM, REGU & ID PETUGAS
     const semuaData: any[][] = [
       ["DAFTAR LENGKAP TUNGGAKAN PELANGGAN KOGOL UNIT JATINEGARA"],
       [`PERIODE: ${activeData.periode.toUpperCase()}`],
+      [`FILTER AKTIF: Regu [${filterRegu}] | Petugas [${filterPetugas}] | Kategori [${filterKategori}]`],
       [],
-      ["No", "ID Pelanggan", "Nama Pelanggan", "Tarif / Daya", "Segmen", "Golongan", "Nominal Tunggakan (Rp)", "Status Lapangan", "Catatan Petugas"],
+      ["No", "ID Pelanggan", "Nama Pelanggan", "Tarif / Daya", "Nomor RBM", "Regu (D45)", "ID Petugas (D456)", "Segmen", "Golongan", "Nominal Tunggakan (Rp)", "Status Lapangan", "Catatan Petugas"],
     ];
 
-    (activeData.semuaPelanggan || []).forEach((p, idx) => {
+    filteredPelanggan.forEach((p, idx) => {
       semuaData.push([
         idx + 1,
         p.idpel,
         p.nama,
         p.tarifDaya,
+        p.rbm,
+        p.regu,
+        p.idPetugas,
         p.kategori,
         p.kelompokTarif,
         p.rpTunggakan,
@@ -364,22 +361,12 @@ export default function DashboardPage() {
     });
 
     const ws3 = XLSX.utils.aoa_to_sheet(semuaData);
-    ws3["!cols"] = [
-      { wch: 6 },
-      { wch: 18 },
-      { wch: 35 },
-      { wch: 16 },
-      { wch: 12 },
-      { wch: 10 },
-      { wch: 24 },
-      { wch: 18 },
-      { wch: 25 },
-    ];
+    ws3["!cols"] = [{ wch: 6 }, { wch: 18 }, { wch: 35 }, { wch: 16 }, { wch: 15 }, { wch: 12 }, { wch: 16 }, { wch: 12 }, { wch: 10 }, { wch: 24 }, { wch: 18 }, { wch: 25 }];
     XLSX.utils.book_append_sheet(wb, ws3, "Data Lengkap Pelanggan");
 
     XLSX.writeFile(
       wb,
-      `PLN_UP3_Jatinegara_Laporan_KOGOL_${activeData.periode.replace(/\s+/g, "_")}.xlsx`
+      `PLN_UP3_Jatinegara_KOGOL_${activeData.periode.replace(/\s+/g, "_")}_Regu_${filterRegu}_Petugas_${filterPetugas}.xlsx`
     );
   };
 
@@ -399,9 +386,7 @@ export default function DashboardPage() {
 
   return (
     <main className="min-h-screen bg-[#F4F7F9] p-4 lg:p-8 space-y-6 print:bg-white print:p-2">
-      {/* ============================================================== */}
-      {/* KOP RESMI DOKUMEN CETAK PLN (Hanya Tampil Saat Dicetak ke PDF) */}
-      {/* ============================================================== */}
+      {/* Kop Cetak Dokumen Resmi PLN */}
       {activeData && (
         <div className="hidden print:block border-b-2 border-slate-900 pb-3 mb-4">
           <div className="flex justify-between items-start">
@@ -415,15 +400,15 @@ export default function DashboardPage() {
             </div>
             <div className="text-right text-[10px] text-slate-600 space-y-0.5">
               <div>No. Dokumen : <strong>PLN-UP3JTN/KOGOL/{activeData.tahun}/{activeData.kodeBulan}</strong></div>
-              <div>Klasifikasi  : <strong>Rahasia / Laporan Manajemen</strong></div>
+              <div>Filter Petugas: <strong>Regu {filterRegu} / ID {filterPetugas}</strong></div>
               <div>Tanggal Cetak: <strong>{waktuSinkronisasi}</strong></div>
             </div>
           </div>
           <div className="text-center mt-3 pt-2 border-t border-slate-200">
             <h1 className="text-sm font-black text-slate-900 uppercase">
-              LEMBAR LAPORAN REALISASI SALDO AKHIR TUNGGAKAN (KOGOL 0)
+              LEMBAR PENUGASAN PENAGIHAN LAPANGAN (KOGOL 0)
             </h1>
-            <p className="text-xs font-semibold text-slate-700">Periode Cut-Off: {activeData.periode.toUpperCase()}</p>
+            <p className="text-xs font-semibold text-slate-700">Periode: {activeData.periode.toUpperCase()}</p>
           </div>
         </div>
       )}
@@ -452,7 +437,7 @@ export default function DashboardPage() {
                 </span>
               </h1>
               <p className="text-xs text-slate-500 mt-0.5">
-                Sistem Monitoring & Otomasi Analisis Saldo Akhir Tunggakan Rekening Listrik (KOGOL)
+                Monitoring KOGOL, Alokasi RBM Regu & Penugasan Harian Billman/Tusbung
               </p>
             </div>
           </div>
@@ -463,10 +448,10 @@ export default function DashboardPage() {
                 <button
                   onClick={handlePrint}
                   className="flex items-center gap-2 bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold px-3.5 py-2.5 rounded-lg shadow-xs transition"
-                  title="Cetak format resume / dokumen tanda tangan resmi"
+                  title="Cetak format resume / lembar penugasan"
                 >
                   <Printer className="w-4 h-4" />
-                  <span>Cetak Dokumen (PDF)</span>
+                  <span>Cetak (PDF)</span>
                 </button>
 
                 <button
@@ -554,13 +539,13 @@ export default function DashboardPage() {
           <div>
             <h3 className="text-base font-bold text-slate-800">Sistem Siap Menerima Data KOGOL</h3>
             <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1">
-              Silakan unggah berkas KOGOL pertama Anda melalui tombol di sudut kanan atas untuk mengaktifkan kalkulasi otomatis.
+              Silakan unggah berkas KOGOL pertama Anda melalui tombol di sudut kanan atas untuk mengaktifkan kalkulasi otomatis dan pemetaan regu RBM.
             </p>
           </div>
         </div>
       ) : (
         <>
-          {/* Navigasi Tab & Pemilihan Bulan */}
+          {/* Navigasi Tab & Periode */}
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-white px-5 py-3 rounded-xl border border-slate-200 shadow-xs print:hidden">
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Periode:</span>
@@ -737,7 +722,7 @@ export default function DashboardPage() {
                     </div>
                   )}
 
-                  {/* Charts Multi-Bulan & Donut (Disembunyikan saat cetak) */}
+                  {/* Charts Multi-Bulan & Donut */}
                   <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 print:hidden">
                     <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs lg:col-span-2">
                       <h4 className="text-xs font-bold text-slate-700 uppercase mb-4">
@@ -809,7 +794,7 @@ export default function DashboardPage() {
                         <div className="flex items-center gap-2 text-xs bg-white/10 px-3 py-1.5 rounded-lg backdrop-blur-xs font-semibold print:hidden">
                           <span>{(prevData.periode || "").split(" ")[0]}</span>
                           <ArrowRight className="w-3.5 h-3.5" />
-                          <span className="text-[#FFD100]">{(currData.periode || "").split(" ")[0]}</span>
+                          <span className="text-[#FFD100]">{currData.periode.split(" ")[0]}</span>
                         </div>
                       </div>
 
@@ -988,39 +973,68 @@ export default function DashboardPage() {
                 </>
               ) : null}
 
-              {/* TABEL PELANGGAN PARETO / LEMBAR KERJA */}
+              {/* ============================================================== */}
+              {/* TABEL PELANGGAN DENGAN FILTER RBM: PER REGU (D45) & PETUGAS (D456) */}
+              {/* ============================================================== */}
               <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden print:border-none">
-                <div className="bg-slate-900 px-6 py-4 text-white flex flex-col md:flex-row justify-between md:items-center gap-3 print:bg-white print:text-black print:p-0 print:border-b">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-lg bg-amber-500/20 text-amber-400 print:hidden">
-                      <Flame className="w-5 h-5" />
-                    </div>
-                    <div>
+                <div className="bg-slate-900 px-6 py-4 text-white flex flex-col lg:flex-row justify-between lg:items-center gap-4 print:bg-white print:text-black print:p-0 print:border-b">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400 print:hidden">
+                        <Users className="w-4 h-4" />
+                      </div>
                       <h3 className="text-sm font-black tracking-wider uppercase">
                         {activeTab === "LEMBAR_KERJA"
-                          ? `Lembar Kerja Penagihan Lapangan (Tusbung / Billman) — ${activeData.periode}`
-                          : `Prioritas Penagihan: Top Pelanggan Tunggakan Terbesar — ${activeData.periode}`}
+                          ? `Lembar Penugasan Lapangan — ${activeData.periode}`
+                          : `Pemetaan Rute Baca Meter (RBM) & Penagihan — ${activeData.periode}`}
                       </h3>
-                      <p className="text-xs text-slate-400 print:text-slate-600">
-                        {activeTab === "LEMBAR_KERJA"
-                          ? "Dokumen instruksi kerja penagihan lapangan, pembongkaran rampung, dan penertiban sambungan tenaga listrik."
-                          : "Gunakan centang kotak bayar di samping baris untuk mensimulasikan dampak saldo jika pelanggan melunasi tagihan."}
-                      </p>
                     </div>
+                    <p className="text-xs text-slate-400 mt-0.5 print:text-slate-600">
+                      Seleksi penugasan penagihan per regu kerja (digit 45 RBM) dan per ID petugas billman (digit 456 RBM).
+                    </p>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2 print:hidden">
-                    <div className="relative">
-                      <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
-                      <input
-                        type="text"
-                        placeholder="Cari IDPEL / Nama..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="pl-8 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-400 focus:outline-none focus:border-sky-400 w-44"
-                      />
+                  {/* Toolbar Filter Cerdas RBM */}
+                  <div className="flex flex-wrap items-center gap-2.5 print:hidden">
+                    {/* Filter Regu (Digit 4-5) */}
+                    <div className="flex items-center gap-1.5 bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-700">
+                      <span className="text-[10px] uppercase font-bold text-slate-400">Regu:</span>
+                      <select
+                        value={filterRegu}
+                        onChange={(e) => {
+                          setFilterRegu(e.target.value);
+                          setFilterPetugas("SEMUA"); // Reset filter petugas saat ganti regu
+                        }}
+                        className="bg-transparent text-xs text-white focus:outline-none font-bold"
+                      >
+                        <option value="SEMUA" className="bg-slate-800 text-white">Semua Regu</option>
+                        {activeData.daftarRegu?.map((rg) => (
+                          <option key={rg} value={rg} className="bg-slate-800 text-white">
+                            Regu {rg}
+                          </option>
+                        ))}
+                      </select>
                     </div>
 
+                    {/* Filter Petugas (Digit 4-5-6) */}
+                    <div className="flex items-center gap-1.5 bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-700">
+                      <UserCheck className="w-3.5 h-3.5 text-sky-400" />
+                      <span className="text-[10px] uppercase font-bold text-slate-400">Petugas:</span>
+                      <select
+                        value={filterPetugas}
+                        onChange={(e) => setFilterPetugas(e.target.value)}
+                        className="bg-transparent text-xs text-white focus:outline-none font-bold"
+                      >
+                        <option value="SEMUA" className="bg-slate-800 text-white">Semua Petugas</option>
+                        {opsiPetugas.map((ptg) => (
+                          <option key={ptg.idPetugas} value={ptg.idPetugas} className="bg-slate-800 text-white">
+                            ID {ptg.idPetugas} (Regu {ptg.regu})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Filter Kategori */}
                     <select
                       value={filterKategori}
                       onChange={(e) => setFilterKategori(e.target.value)}
@@ -1031,7 +1045,43 @@ export default function DashboardPage() {
                       <option value="AMR">AMR Reguler</option>
                       <option value="NON-AMR">Non-AMR</option>
                     </select>
+
+                    {/* Search Input */}
+                    <div className="relative">
+                      <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+                      <input
+                        type="text"
+                        placeholder="Cari IDPEL / Nama / RBM..."
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        className="pl-8 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-400 focus:outline-none focus:border-sky-400 w-44"
+                      />
+                    </div>
                   </div>
+                </div>
+
+                {/* Sub-Header Hasil Filter (Menampilkan Total Beban Regu/Petugas) */}
+                <div className="bg-sky-50/70 border-b border-sky-100 px-6 py-2.5 flex flex-wrap justify-between items-center text-xs text-slate-700">
+                  <div className="flex items-center gap-4">
+                    <span>
+                      Ditemukan: <b>{rekapTerfilter.totalPlgn} Pelanggan</b>
+                    </span>
+                    <span className="text-slate-300">•</span>
+                    <span>
+                      Beban Tunggakan: <b className="text-[#005C8A]">Rp {rekapTerfilter.totalRp.toLocaleString("id-ID")}</b>
+                    </span>
+                  </div>
+                  {(filterRegu !== "SEMUA" || filterPetugas !== "SEMUA") && (
+                    <button
+                      onClick={() => {
+                        setFilterRegu("SEMUA");
+                        setFilterPetugas("SEMUA");
+                      }}
+                      className="text-rose-600 hover:text-rose-700 font-bold text-[11px] underline print:hidden"
+                    >
+                      Reset Filter Regu/Petugas
+                    </button>
+                  )}
                 </div>
 
                 <div className="overflow-x-auto">
@@ -1042,8 +1092,11 @@ export default function DashboardPage() {
                         <th className="py-2.5 px-3 w-10 text-center">No</th>
                         <th className="py-2.5 px-4">ID Pelanggan</th>
                         <th className="py-2.5 px-4">Nama Pelanggan</th>
-                        <th className="py-2.5 px-4">Tarif / Daya</th>
-                        <th className="py-2.5 px-4 text-center">Segmen</th>
+                        <th className="py-2.5 px-3">Tarif / Daya</th>
+                        <th className="py-2.5 px-3 font-mono">No. RBM</th>
+                        <th className="py-2.5 px-2 text-center bg-sky-50/80">Regu</th>
+                        <th className="py-2.5 px-2 text-center bg-indigo-50/80">Petugas</th>
+                        <th className="py-2.5 px-3 text-center">Segmen</th>
                         <th className="py-2.5 px-4 text-right">Rupiah Tunggakan</th>
                         {activeTab === "LEMBAR_KERJA" && (
                           <>
@@ -1055,7 +1108,7 @@ export default function DashboardPage() {
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-slate-700 print:divide-slate-300">
                       {filteredPelanggan.length > 0 ? (
-                        filteredPelanggan.slice(0, activeTab === "RINGKASAN" ? 15 : 60).map((item, idx) => {
+                        filteredPelanggan.slice(0, activeTab === "RINGKASAN" ? 20 : 100).map((item, idx) => {
                           const isLunas = !!simulasiLunas[item.idpel];
                           return (
                             <tr
@@ -1080,8 +1133,28 @@ export default function DashboardPage() {
                               <td className="py-2 px-3 text-center font-bold text-slate-400">{idx + 1}</td>
                               <td className="py-2 px-4 font-mono font-semibold text-slate-900">{item.idpel}</td>
                               <td className="py-2 px-4 font-bold text-slate-800">{item.nama}</td>
-                              <td className="py-2 px-4 text-slate-600">{item.tarifDaya}</td>
-                              <td className="py-2 px-4 text-center">
+                              <td className="py-2 px-3 text-slate-600">{item.tarifDaya}</td>
+                              <td className="py-2 px-3 font-mono text-slate-600">{item.rbm}</td>
+                              
+                              {/* Kolom Regu (Digit 45) */}
+                              <td className="py-2 px-2 text-center font-bold text-[#005C8A] bg-sky-50/50">
+                                {item.regu !== "-" ? (
+                                  <span className="px-2 py-0.5 rounded bg-sky-100/80 font-mono text-[11px]">
+                                    {item.regu}
+                                  </span>
+                                ) : "-"}
+                              </td>
+
+                              {/* Kolom ID Petugas (Digit 456) */}
+                              <td className="py-2 px-2 text-center font-bold text-indigo-700 bg-indigo-50/50">
+                                {item.idPetugas !== "-" ? (
+                                  <span className="px-2 py-0.5 rounded bg-indigo-100/80 font-mono text-[11px]">
+                                    {item.idPetugas}
+                                  </span>
+                                ) : "-"}
+                              </td>
+
+                              <td className="py-2 px-3 text-center">
                                 {item.kategori === "KCIC" && (
                                   <span className="px-2 py-0.5 text-[10px] font-extrabold rounded bg-rose-100 text-rose-700 border border-rose-200">
                                     KCIC
@@ -1117,8 +1190,8 @@ export default function DashboardPage() {
                         })
                       ) : (
                         <tr>
-                          <td colSpan={8} className="py-6 text-center text-slate-400">
-                            Tidak ditemukan data pelanggan yang sesuai dengan kriteria pencarian.
+                          <td colSpan={activeTab === "LEMBAR_KERJA" ? 12 : 10} className="py-8 text-center text-slate-400">
+                            Tidak ditemukan data pelanggan yang sesuai dengan seleksi Regu / Petugas / Kata Kunci pencarian.
                           </td>
                         </tr>
                       )}
@@ -1126,7 +1199,7 @@ export default function DashboardPage() {
                   </table>
                 </div>
 
-                {/* Kolom Pengesahan Tiga Pejabat (Hanya Muncul Saat Dicetak ke PDF/Kertas) */}
+                {/* Kolom Pengesahan Tiga Pejabat */}
                 <div className="hidden print:grid grid-cols-3 gap-6 p-6 mt-8 text-center text-xs text-slate-900 border-t-2 border-slate-800">
                   <div>
                     <p className="font-semibold text-slate-600">Disusun oleh,</p>
