@@ -35,7 +35,6 @@ export const downloadPresentationPptx = (
   const slide1 = pres.addSlide();
   slide1.background = { color: C_NAVY_DARK };
 
-  // Aksen garis kuning PLN & biru di kiri
   slide1.addShape(pres.ShapeType.rect, {
     x: 0, y: 0, w: 0.35, h: 7.5,
     fill: { color: C_YELLOW }, line: { color: C_YELLOW },
@@ -45,7 +44,6 @@ export const downloadPresentationPptx = (
     fill: { color: C_CYAN }, line: { color: C_CYAN },
   });
 
-  // Badge Kategori Slide
   slide1.addShape(pres.ShapeType.roundRect, {
     x: 1.5, y: 1.5, w: 3.4, h: 0.45,
     fill: { color: "1E293B" }, line: { color: C_CYAN, width: 1 },
@@ -88,7 +86,6 @@ export const downloadPresentationPptx = (
   const slide2 = pres.addSlide();
   slide2.background = { color: "F4F7F9" };
 
-  // Header Nav Bar
   slide2.addShape(pres.ShapeType.roundRect, {
     x: 0.8, y: 0.4, w: 11.73, h: 0.85,
     fill: { color: C_CARD_BG }, line: { color: C_CARD_BORDER, width: 1 },
@@ -102,7 +99,6 @@ export const downloadPresentationPptx = (
     fontSize: 9.5, bold: true, color: C_TEXT_MUTED, fontFace: "Arial",
   });
 
-  // KPI Target Card Kanan
   slide2.addShape(pres.ShapeType.roundRect, {
     x: 8.8, y: 0.48, w: 3.5, h: 0.7,
     fill: { color: C_NAVY_DARK }, line: { color: C_NAVY_DARK },
@@ -116,7 +112,7 @@ export const downloadPresentationPptx = (
     fontSize: 9, color: "BAE6FD", align: "center", fontFace: "Arial",
   });
 
-  // KARTU 1: DENGAN KCIC
+  // Kartu 1: Dengan KCIC
   slide2.addShape(pres.ShapeType.roundRect, {
     x: 0.8, y: 1.45, w: 5.7, h: 2.15,
     fill: { color: C_CARD_BG }, line: { color: C_PLN_BLUE, width: 2 },
@@ -149,7 +145,7 @@ export const downloadPresentationPptx = (
     { x: 3.6, y: 1.85, w: 2.8, h: 1.6, fontFace: "Arial" }
   );
 
-  // KARTU 2: TANPA KCIC
+  // Kartu 2: Tanpa KCIC
   slide2.addShape(pres.ShapeType.roundRect, {
     x: 6.83, y: 1.45, w: 5.7, h: 2.15,
     fill: { color: C_CARD_BG }, line: { color: C_ORANGE, width: 2 },
@@ -182,7 +178,7 @@ export const downloadPresentationPptx = (
     { x: 9.63, y: 1.85, w: 2.8, h: 1.6, fontFace: "Arial" }
   );
 
-  // Tabel Rincian Data Kiri Bawah
+  // Tabel Rincian Data
   const tabelData = [
     [
       { text: "Kategori Segmentasi", options: { bold: true, fill: "F1F5F9" } },
@@ -190,14 +186,14 @@ export const downloadPresentationPptx = (
       { text: "Pelanggan", options: { bold: true, fill: "F1F5F9", align: "center" } },
       { text: "Rupiah Tunggakan", options: { bold: true, fill: "F1F5F9", align: "right" } },
     ],
-    ["Dengan KCIC", "AMR", `${data.denganKcic.amrPlgn} Plgn`, `Rp ${data.denganKcic.amrRp.toLocaleString("id-ID")}`],
-    ["Dengan KCIC", "NON-AMR", `${data.denganKcic.nonAmrPlgn} Plgn`, `Rp ${data.denganKcic.nonAmrRp.toLocaleString("id-ID")}`],
-    ["Tanpa KCIC", "AMR", `${data.tanpaKcic.amrPlgn} Plgn`, `Rp ${data.tanpaKcic.amrRp.toLocaleString("id-ID")}`],
-    ["Tanpa KCIC", "NON-AMR", `${data.tanpaKcic.nonAmrPlgn} Plgn`, `Rp ${data.tanpaKcic.nonAmrRp.toLocaleString("id-ID")}`],
-    ["Khusus Entitas KCIC", "AMR", `${data.kcicOnly.plgn} Plgn`, `Rp ${data.kcicOnly.rp.toLocaleString("id-ID")}`],
+    [{ text: "Dengan KCIC" }, { text: "AMR" }, { text: `${data.denganKcic.amrPlgn} Plgn` }, { text: `Rp ${data.denganKcic.amrRp.toLocaleString("id-ID")}` }],
+    [{ text: "Dengan KCIC" }, { text: "NON-AMR" }, { text: `${data.denganKcic.nonAmrPlgn} Plgn` }, { text: `Rp ${data.denganKcic.nonAmrRp.toLocaleString("id-ID")}` }],
+    [{ text: "Tanpa KCIC" }, { text: "AMR" }, { text: `${data.tanpaKcic.amrPlgn} Plgn` }, { text: `Rp ${data.tanpaKcic.amrRp.toLocaleString("id-ID")}` }],
+    [{ text: "Tanpa KCIC" }, { text: "NON-AMR" }, { text: `${data.tanpaKcic.nonAmrPlgn} Plgn` }, { text: `Rp ${data.tanpaKcic.nonAmrRp.toLocaleString("id-ID")}` }],
+    [{ text: "Khusus Entitas KCIC" }, { text: "AMR" }, { text: `${data.kcicOnly.plgn} Plgn` }, { text: `Rp ${data.kcicOnly.rp.toLocaleString("id-ID")}` }],
   ];
 
-  slide2.addTable(tabelData, {
+  slide2.addTable(tabelData as any, {
     x: 0.8, y: 3.8, w: 6.8,
     fontSize: 9,
     border: { pt: 0.5, color: C_CARD_BORDER },
@@ -206,7 +202,6 @@ export const downloadPresentationPptx = (
     autoPage: false,
   });
 
-  // Boks Rekomendasi Eksekutif Kanan Bawah
   slide2.addShape(pres.ShapeType.roundRect, {
     x: 7.8, y: 3.8, w: 4.73, h: 3.2,
     fill: { color: C_CARD_BG }, line: { color: C_CARD_BORDER, width: 1 },
@@ -241,7 +236,6 @@ export const downloadPresentationPptx = (
     fontSize: 15, bold: true, color: C_PLN_BLUE, fontFace: "Arial",
   });
 
-  // Donut 1
   slide3.addShape(pres.ShapeType.roundRect, {
     x: 0.8, y: 1.4, w: 5.7, h: 5.4,
     fill: { color: C_CARD_BG }, line: { color: C_CARD_BORDER, width: 1 },
@@ -265,7 +259,6 @@ export const downloadPresentationPptx = (
     }
   );
 
-  // Donut 2
   slide3.addShape(pres.ShapeType.roundRect, {
     x: 6.83, y: 1.4, w: 5.7, h: 5.4,
     fill: { color: C_CARD_BG }, line: { color: C_CARD_BORDER, width: 1 },
@@ -321,17 +314,17 @@ export const downloadPresentationPptx = (
     top10Rows.forEach((p, idx) => {
       const kontribusi = ((p.rpTunggakan / data.denganKcic.totalRp) * 100).toFixed(2);
       tableTop10Data.push([
-        `${idx + 1}`,
-        p.idpel,
-        p.nama,
-        p.tarifDaya,
-        p.kategori,
-        `Rp ${p.rpTunggakan.toLocaleString("id-ID")}`,
-        `${kontribusi}%`,
+        { text: `${idx + 1}` },
+        { text: p.idpel },
+        { text: p.nama },
+        { text: p.tarifDaya },
+        { text: p.kategori },
+        { text: `Rp ${p.rpTunggakan.toLocaleString("id-ID")}` },
+        { text: `${kontribusi}%` },
       ]);
     });
 
-    slide4.addTable(tableTop10Data, {
+    slide4.addTable(tableTop10Data as any, {
       x: 0.8, y: 1.45, w: 11.73,
       fontSize: 9.5,
       border: { pt: 0.5, color: C_CARD_BORDER },
