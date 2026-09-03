@@ -100,13 +100,34 @@ export const parseExcelKogolBuffer = (
 
   const labelPeriode = `${NAMA_BULAN[bulan] || "Bulan"} ${tahun}`;
 
-  let startIndex = 0;
-  for (let i = 0; i < Math.min(rows.length, 15); i++) {
-    if (rows[i] && rows[i].length > 5) {
-      startIndex = i;
+  // 1. Deteksi Baris Header & Letak Kolom RBM Secara Cerdas
+  let headerIndex = -1;
+  let colIndexRbm = -1;
+  let colIndexRp = -1;
+  let colIndexIdpel = -1;
+  let colIndexNama = -1;
+  let colIndexTarif = -1;
+
+  for (let i = 0; i < Math.min(rows.length, 20); i++) {
+    const r = rows[i];
+    if (!r) continue;
+    const rStr = r.map((c) => String(c || "").toUpperCase());
+
+    const rbmIdx = rStr.findIndex((h) =>
+      h.includes("RBM") || h.includes("KODELK") || h.includes("PEMBACA") || h.includes("KEDUDUKAN")
+    );
+    if (rbmIdx !== -1) {
+      headerIndex = i;
+      colIndexRbm = rbmIdx;
+      colIndexIdpel = rStr.findIndex((h) => h.includes("IDPEL") || h.includes("ID PEL"));
+      colIndexNama = rStr.findIndex((h) => h.includes("NAMA"));
+      colIndexTarif = rStr.findIndex((h) => h.includes("TARIF") || h.includes("DAYA"));
+      colIndexRp = rStr.findIndex((h) => h.includes("RP") || h.includes("TAG") || h.includes("SALDO"));
       break;
     }
   }
+
+  const startIndex = headerIndex !== -1 ? headerIndex + 1 : 1;
 
   let nonAmrCount = 0;
   let nonAmrRp = 0;
@@ -117,7 +138,7 @@ export const parseExcelKogolBuffer = (
 
   const semuaPelanggan: PelangganTunggakan[] = [];
   const setRegu = new Set<string>();
-  const setPetugas = new Map<string, string>(); // idPetugas -> regu
+  const mapPetugas = new Map<string, string>();
 
   const rekapTarif: Record<string, { plgn: number; rp: number }> = {
     R: { plgn: 0, rp: 0 },
@@ -130,39 +151,65 @@ export const parseExcelKogolBuffer = (
 
   for (let i = startIndex; i < rows.length; i++) {
     const row = rows[i];
-    if (!row || row.length < 5) continue;
+    if (!row || row.length < 4) continue;
 
-    const idpel = String(row[1] || row[2] || "-").trim();
+    const idpel = String(
+      (colIndexIdpel !== -1 ? row[colIndexIdpel] : null) || row[1] || row[2] || "-"
+    ).trim();
+
+    // Skip baris subtotal / footer
+    if (idpel.toLowerCase().includes("total") || idpel.toLowerCase().includes("jumlah")) {
+      continue;
+    }
+
     const kodeMr = String(row[3] || "").trim().toUpperCase();
-    const namaPlgn = String(row[4] || "").trim().toUpperCase();
-    const tarifDaya = String(row[5] || row[6] || "TARIF REG").trim().toUpperCase();
+    const namaPlgn = String(
+      (colIndexNama !== -1 ? row[colIndexNama] : null) || row[4] || ""
+    ).trim().toUpperCase();
 
-    // Pembacaan kolom nomor RBM (biasanya berada di kolom ke-8 atau ke-9)
+    const tarifDaya = String(
+      (colIndexTarif !== -1 ? row[colIndexTarif] : null) || row[5] || row[6] || "TARIF REG"
+    ).trim().toUpperCase();
+
+    // Pencarian Nilai RBM
     let rbmRaw = "";
-    for (let c = 6; c <= 11; c++) {
-      const val = String(row[c] || "").trim();
-      // Format RBM umumnya angka dengan panjang minimal 6 digit
-      if (/^\d{6,}$/.test(val)) {
-        rbmRaw = val;
-        break;
+    if (colIndexRbm !== -1 && row[colIndexRbm]) {
+      rbmRaw = String(row[colIndexRbm]).trim();
+    } else {
+      // Fallback: telusuri kolom baris yang berisi deretan angka format RBM (panjang 6-12 digit)
+      for (let c = 5; c < Math.min(row.length, 14); c++) {
+        const valClean = String(row[c] || "").replace(/\D/g, "");
+        if (valClean.length >= 6 && valClean.length <= 12) {
+          rbmRaw = String(row[c]).trim();
+          break;
+        }
       }
     }
-    if (!rbmRaw) {
-      rbmRaw = String(row[7] || row[8] || "-").trim();
-    }
 
-    // Ekstraksi Regu (digit 4-5) & ID Petugas (digit 4-5-6)
-    // Di JavaScript indeks ke-3 s/d 5 adalah karakter ke-4 & ke-5
+    // Ekstraksi Regu & ID Petugas
+    // Hilangkan semua karakter selain angka agar pemotongan digit presisi
+    const rbmDigitsOnly = rbmRaw.replace(/\D/g, "");
     let regu = "-";
     let idPetugas = "-";
-    if (rbmRaw.length >= 6 && /^\d+$/.test(rbmRaw)) {
-      regu = rbmRaw.substring(3, 5);
-      idPetugas = rbmRaw.substring(3, 6);
+
+    if (rbmDigitsOnly.length >= 6) {
+      // Digit ke-4 & ke-5 (indeks 3 s/d 5) -> Regu
+      regu = rbmDigitsOnly.substring(3, 5);
+      // Digit ke-4, ke-5 & ke-6 (indeks 3 s/d 6) -> ID Petugas
+      idPetugas = rbmDigitsOnly.substring(3, 6);
+
       setRegu.add(regu);
-      setPetugas.set(idPetugas, regu);
+      mapPetugas.set(idPetugas, regu);
     }
 
-    let rpRaw = row[13] !== undefined ? row[13] : row[row.length - 3];
+    // Rupiah Tunggakan
+    let rpRaw =
+      colIndexRp !== -1 && row[colIndexRp] !== undefined
+        ? row[colIndexRp]
+        : row[13] !== undefined
+        ? row[13]
+        : row[row.length - 3];
+
     let rp =
       typeof rpRaw === "number"
         ? rpRaw
@@ -206,7 +253,7 @@ export const parseExcelKogolBuffer = (
         kategori,
         kelompokTarif: kelompok,
         rpTunggakan: rp,
-        rbm: rbmRaw,
+        rbm: rbmRaw || "-",
         regu,
         idPetugas,
       });
@@ -215,10 +262,9 @@ export const parseExcelKogolBuffer = (
 
   semuaPelanggan.sort((a, b) => b.rpTunggakan - a.rpTunggakan);
 
-  const daftarPetugas = Array.from(setPetugas.entries()).map(([id, rg]) => ({
-    idPetugas: id,
-    regu: rg,
-  })).sort((a, b) => a.idPetugas.localeCompare(b.idPetugas));
+  const daftarPetugas = Array.from(mapPetugas.entries())
+    .map(([id, rg]) => ({ idPetugas: id, regu: rg }))
+    .sort((a, b) => a.idPetugas.localeCompare(b.idPetugas));
 
   return {
     periode: labelPeriode,

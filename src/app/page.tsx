@@ -24,6 +24,7 @@ import {
   Building2,
   Users,
   UserCheck,
+  ArrowUpDown,
 } from "lucide-react";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { parseExcelKogolBuffer, HasilKogol } from "@/lib/parserKogol";
@@ -53,6 +54,7 @@ const PlnLogo = ({ className = "w-9 h-11" }: { className?: string }) => (
 );
 
 type SkenarioSimulasi = "SEMUA" | "TANPA_KCIC" | "HANYA_NON_AMR";
+type KolomSortir = "NOMINAL" | "REGU" | "PETUGAS" | "NAMA";
 
 export default function DashboardPage() {
   const [dataHistory, setDataHistory] = useState<Record<string, HasilKogol>>({});
@@ -64,6 +66,8 @@ export default function DashboardPage() {
   const [filterKategori, setFilterKategori] = useState<string>("SEMUA");
   const [filterRegu, setFilterRegu] = useState<string>("SEMUA");
   const [filterPetugas, setFilterPetugas] = useState<string>("SEMUA");
+  const [kolomSortir, setKolomSortir] = useState<KolomSortir>("NOMINAL");
+  const [arahSortir, setArahSortir] = useState<"ASC" | "DESC">("DESC");
   const [simulasiLunas, setSimulasiLunas] = useState<Record<string, boolean>>({});
   const [activeTab, setActiveTab] = useState<"RINGKASAN" | "LEMBAR_KERJA">("RINGKASAN");
 
@@ -201,17 +205,18 @@ export default function DashboardPage() {
     ? ((diffKcicRp / diffTotalRp) * 100).toFixed(1)
     : "0.0";
 
-  // Opsi Dropdown Petugas yang dinamis mengikuti pilihan Regu
+  // Opsi Dropdown Petugas Menyesuaikan Regu
   const opsiPetugas = useMemo(() => {
     if (!activeData?.daftarPetugas) return [];
     if (filterRegu === "SEMUA") return activeData.daftarPetugas;
     return activeData.daftarPetugas.filter((p) => p.regu === filterRegu);
   }, [activeData, filterRegu]);
 
-  // Logika Filter Multikriteria: Teks, Kategori, Regu (digit 45), Petugas (digit 456)
+  // Logika Filter & Pengurutan (Sorting)
   const filteredPelanggan = useMemo(() => {
     if (!activeData || !activeData.semuaPelanggan) return [];
-    return activeData.semuaPelanggan.filter((p) => {
+
+    let hasil = activeData.semuaPelanggan.filter((p) => {
       const matchText =
         p.idpel.toLowerCase().includes(searchQuery.toLowerCase()) ||
         p.nama.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -223,9 +228,33 @@ export default function DashboardPage() {
 
       return matchText && matchKategori && matchRegu && matchPetugas;
     });
-  }, [activeData, searchQuery, filterKategori, filterRegu, filterPetugas]);
 
-  // Rekapitulasi Khusus Baris Terfilter
+    // Urutkan data berdasarkan kolom yang dipilih
+    hasil.sort((a, b) => {
+      let multiplier = arahSortir === "ASC" ? 1 : -1;
+      if (kolomSortir === "NOMINAL") {
+        return (a.rpTunggakan - b.rpTunggakan) * multiplier;
+      } else if (kolomSortir === "REGU") {
+        return a.regu.localeCompare(b.regu) * multiplier;
+      } else if (kolomSortir === "PETUGAS") {
+        return a.idPetugas.localeCompare(b.idPetugas) * multiplier;
+      } else {
+        return a.nama.localeCompare(b.nama) * multiplier;
+      }
+    });
+
+    return hasil;
+  }, [activeData, searchQuery, filterKategori, filterRegu, filterPetugas, kolomSortir, arahSortir]);
+
+  const handleToggleSort = (kolom: KolomSortir) => {
+    if (kolomSortir === kolom) {
+      setArahSortir((prev) => (prev === "ASC" ? "DESC" : "ASC"));
+    } else {
+      setKolomSortir(kolom);
+      setArahSortir("ASC");
+    }
+  };
+
   const rekapTerfilter = useMemo(() => {
     const totalRp = filteredPelanggan.reduce((acc, p) => acc + p.rpTunggakan, 0);
     const totalPlgn = filteredPelanggan.length;
@@ -262,7 +291,6 @@ export default function DashboardPage() {
 
     const wb = XLSX.utils.book_new();
 
-    // SHEET 1: RINGKASAN EKSEKUTIF
     const sheet1Data: any[][] = [
       ["PT PLN (PERSERO) UID JAKARTA RAYA"],
       ["UP3 JATINEGARA — BIDANG TRANSAKSI ENERGI"],
@@ -305,12 +333,11 @@ export default function DashboardPage() {
     ws1["!cols"] = [{ wch: 34 }, { wch: 22 }, { wch: 24 }, { wch: 24 }, { wch: 24 }];
     XLSX.utils.book_append_sheet(wb, ws1, "Ringkasan Eksekutif");
 
-    // SHEET 2: TOP 10 PARETO PRIORITAS PENAGIHAN
     const top10Data: any[][] = [
       ["TOP 10 PELANGGAN SALDO TUNGGAKAN TERBESAR (PARETO 80/20)"],
       [`PERIODE: ${activeData.periode.toUpperCase()}`],
       [],
-      ["No", "ID Pelanggan", "Nama Pelanggan", "Tarif / Daya", "No RBM", "Regu", "Petugas", "Segmen", "Nominal Tunggakan (Rp)", "Kontribusi (%)"],
+      ["No", "ID Pelanggan", "Nama Pelanggan", "Tarif / Daya", "No RBM", "Regu (D45)", "Petugas (D456)", "Segmen", "Nominal Tunggakan (Rp)", "Kontribusi (%)"],
     ];
 
     const top10List = (activeData.semuaPelanggan || []).slice(0, 10);
@@ -331,10 +358,9 @@ export default function DashboardPage() {
     });
 
     const ws2 = XLSX.utils.aoa_to_sheet(top10Data);
-    ws2["!cols"] = [{ wch: 6 }, { wch: 18 }, { wch: 35 }, { wch: 16 }, { wch: 14 }, { wch: 8 }, { wch: 10 }, { wch: 12 }, { wch: 24 }, { wch: 15 }];
+    ws2["!cols"] = [{ wch: 6 }, { wch: 18 }, { wch: 35 }, { wch: 16 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 24 }, { wch: 15 }];
     XLSX.utils.book_append_sheet(wb, ws2, "Top 10 Prioritas");
 
-    // SHEET 3: DATA LENGKAP PELANGGAN DENGAN KOLOM RBM, REGU & ID PETUGAS
     const semuaData: any[][] = [
       ["DAFTAR LENGKAP TUNGGAKAN PELANGGAN KOGOL UNIT JATINEGARA"],
       [`PERIODE: ${activeData.periode.toUpperCase()}`],
@@ -386,7 +412,7 @@ export default function DashboardPage() {
 
   return (
     <main className="min-h-screen bg-[#F4F7F9] p-4 lg:p-8 space-y-6 print:bg-white print:p-2">
-      {/* Kop Cetak Dokumen Resmi PLN */}
+      {/* Kop Cetak PDF */}
       {activeData && (
         <div className="hidden print:block border-b-2 border-slate-900 pb-3 mb-4">
           <div className="flex justify-between items-start">
@@ -400,7 +426,7 @@ export default function DashboardPage() {
             </div>
             <div className="text-right text-[10px] text-slate-600 space-y-0.5">
               <div>No. Dokumen : <strong>PLN-UP3JTN/KOGOL/{activeData.tahun}/{activeData.kodeBulan}</strong></div>
-              <div>Filter Petugas: <strong>Regu {filterRegu} / ID {filterPetugas}</strong></div>
+              <div>Penugasan   : <strong>Regu {filterRegu} / Petugas {filterPetugas}</strong></div>
               <div>Tanggal Cetak: <strong>{waktuSinkronisasi}</strong></div>
             </div>
           </div>
@@ -794,7 +820,7 @@ export default function DashboardPage() {
                         <div className="flex items-center gap-2 text-xs bg-white/10 px-3 py-1.5 rounded-lg backdrop-blur-xs font-semibold print:hidden">
                           <span>{(prevData.periode || "").split(" ")[0]}</span>
                           <ArrowRight className="w-3.5 h-3.5" />
-                          <span className="text-[#FFD100]">{currData.periode.split(" ")[0]}</span>
+                          <span className="text-[#FFD100]">{(currData.periode || "").split(" ")[0]}</span>
                         </div>
                       </div>
 
@@ -974,7 +1000,7 @@ export default function DashboardPage() {
               ) : null}
 
               {/* ============================================================== */}
-              {/* TABEL PELANGGAN DENGAN FILTER RBM: PER REGU (D45) & PETUGAS (D456) */}
+              {/* TABEL PELANGGAN DENGAN FITUR SORTIR & FILTER REGU/PETUGAS */}
               {/* ============================================================== */}
               <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden print:border-none">
                 <div className="bg-slate-900 px-6 py-4 text-white flex flex-col lg:flex-row justify-between lg:items-center gap-4 print:bg-white print:text-black print:p-0 print:border-b">
@@ -1003,16 +1029,18 @@ export default function DashboardPage() {
                         value={filterRegu}
                         onChange={(e) => {
                           setFilterRegu(e.target.value);
-                          setFilterPetugas("SEMUA"); // Reset filter petugas saat ganti regu
+                          setFilterPetugas("SEMUA");
                         }}
                         className="bg-transparent text-xs text-white focus:outline-none font-bold"
                       >
                         <option value="SEMUA" className="bg-slate-800 text-white">Semua Regu</option>
-                        {activeData.daftarRegu?.map((rg) => (
-                          <option key={rg} value={rg} className="bg-slate-800 text-white">
-                            Regu {rg}
-                          </option>
-                        ))}
+                        {activeData.daftarRegu && activeData.daftarRegu.length > 0 ? (
+                          activeData.daftarRegu.map((rg) => (
+                            <option key={rg} value={rg} className="bg-slate-800 text-white">
+                              Regu {rg}
+                            </option>
+                          ))
+                        ) : null}
                       </select>
                     </div>
 
@@ -1026,11 +1054,13 @@ export default function DashboardPage() {
                         className="bg-transparent text-xs text-white focus:outline-none font-bold"
                       >
                         <option value="SEMUA" className="bg-slate-800 text-white">Semua Petugas</option>
-                        {opsiPetugas.map((ptg) => (
-                          <option key={ptg.idPetugas} value={ptg.idPetugas} className="bg-slate-800 text-white">
-                            ID {ptg.idPetugas} (Regu {ptg.regu})
-                          </option>
-                        ))}
+                        {opsiPetugas && opsiPetugas.length > 0 ? (
+                          opsiPetugas.map((ptg) => (
+                            <option key={ptg.idPetugas} value={ptg.idPetugas} className="bg-slate-800 text-white">
+                              ID {ptg.idPetugas} (Regu {ptg.regu})
+                            </option>
+                          ))
+                        ) : null}
                       </select>
                     </div>
 
@@ -1060,7 +1090,7 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Sub-Header Hasil Filter (Menampilkan Total Beban Regu/Petugas) */}
+                {/* Sub-Header Hasil Filter */}
                 <div className="bg-sky-50/70 border-b border-sky-100 px-6 py-2.5 flex flex-wrap justify-between items-center text-xs text-slate-700">
                   <div className="flex items-center gap-4">
                     <span>
@@ -1069,6 +1099,10 @@ export default function DashboardPage() {
                     <span className="text-slate-300">•</span>
                     <span>
                       Beban Tunggakan: <b className="text-[#005C8A]">Rp {rekapTerfilter.totalRp.toLocaleString("id-ID")}</b>
+                    </span>
+                    <span className="text-slate-300">•</span>
+                    <span className="text-[11px] text-slate-500">
+                      Urutan: <b>{kolomSortir} ({arahSortir})</b>
                     </span>
                   </div>
                   {(filterRegu !== "SEMUA" || filterPetugas !== "SEMUA") && (
@@ -1086,18 +1120,61 @@ export default function DashboardPage() {
 
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs text-left">
-                    <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 print:bg-slate-100">
+                    <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 print:bg-slate-100 select-none">
                       <tr>
                         <th className="py-2.5 px-3 w-10 text-center print:hidden">Bayar</th>
                         <th className="py-2.5 px-3 w-10 text-center">No</th>
                         <th className="py-2.5 px-4">ID Pelanggan</th>
-                        <th className="py-2.5 px-4">Nama Pelanggan</th>
+                        <th
+                          className="py-2.5 px-4 cursor-pointer hover:text-[#005C8A]"
+                          onClick={() => handleToggleSort("NAMA")}
+                        >
+                          <div className="flex items-center gap-1">
+                            <span>Nama Pelanggan</span>
+                            <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                          </div>
+                        </th>
                         <th className="py-2.5 px-3">Tarif / Daya</th>
                         <th className="py-2.5 px-3 font-mono">No. RBM</th>
-                        <th className="py-2.5 px-2 text-center bg-sky-50/80">Regu</th>
-                        <th className="py-2.5 px-2 text-center bg-indigo-50/80">Petugas</th>
+                        
+                        {/* Judul Kolom yang Bisa Diklik untuk Sortir Regu */}
+                        <th
+                          className="py-2.5 px-2 text-center bg-sky-50/80 cursor-pointer hover:bg-sky-100 text-[#005C8A]"
+                          onClick={() => handleToggleSort("REGU")}
+                          title="Klik untuk sortir per Regu"
+                        >
+                          <div className="flex items-center justify-center gap-1">
+                            <span>Regu</span>
+                            <ArrowUpDown className="w-3 h-3 text-sky-600" />
+                          </div>
+                        </th>
+
+                        {/* Judul Kolom yang Bisa Diklik untuk Sortir Petugas */}
+                        <th
+                          className="py-2.5 px-2 text-center bg-indigo-50/80 cursor-pointer hover:bg-indigo-100 text-indigo-700"
+                          onClick={() => handleToggleSort("PETUGAS")}
+                          title="Klik untuk sortir per ID Petugas"
+                        >
+                          <div className="flex items-center justify-center gap-1">
+                            <span>Petugas</span>
+                            <ArrowUpDown className="w-3 h-3 text-indigo-600" />
+                          </div>
+                        </th>
+
                         <th className="py-2.5 px-3 text-center">Segmen</th>
-                        <th className="py-2.5 px-4 text-right">Rupiah Tunggakan</th>
+                        
+                        {/* Judul Kolom yang Bisa Diklik untuk Sortir Nominal */}
+                        <th
+                          className="py-2.5 px-4 text-right cursor-pointer hover:text-[#005C8A]"
+                          onClick={() => handleToggleSort("NOMINAL")}
+                          title="Klik untuk sortir nominal tunggakan"
+                        >
+                          <div className="flex items-center justify-end gap-1">
+                            <span>Rupiah Tunggakan</span>
+                            <ArrowUpDown className="w-3 h-3 text-slate-400" />
+                          </div>
+                        </th>
+
                         {activeTab === "LEMBAR_KERJA" && (
                           <>
                             <th className="py-2.5 px-4 text-center w-28">Status Lapangan</th>
@@ -1108,7 +1185,7 @@ export default function DashboardPage() {
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-slate-700 print:divide-slate-300">
                       {filteredPelanggan.length > 0 ? (
-                        filteredPelanggan.slice(0, activeTab === "RINGKASAN" ? 20 : 100).map((item, idx) => {
+                        filteredPelanggan.slice(0, activeTab === "RINGKASAN" ? 25 : 120).map((item, idx) => {
                           const isLunas = !!simulasiLunas[item.idpel];
                           return (
                             <tr
@@ -1136,7 +1213,6 @@ export default function DashboardPage() {
                               <td className="py-2 px-3 text-slate-600">{item.tarifDaya}</td>
                               <td className="py-2 px-3 font-mono text-slate-600">{item.rbm}</td>
                               
-                              {/* Kolom Regu (Digit 45) */}
                               <td className="py-2 px-2 text-center font-bold text-[#005C8A] bg-sky-50/50">
                                 {item.regu !== "-" ? (
                                   <span className="px-2 py-0.5 rounded bg-sky-100/80 font-mono text-[11px]">
@@ -1145,7 +1221,6 @@ export default function DashboardPage() {
                                 ) : "-"}
                               </td>
 
-                              {/* Kolom ID Petugas (Digit 456) */}
                               <td className="py-2 px-2 text-center font-bold text-indigo-700 bg-indigo-50/50">
                                 {item.idPetugas !== "-" ? (
                                   <span className="px-2 py-0.5 rounded bg-indigo-100/80 font-mono text-[11px]">
