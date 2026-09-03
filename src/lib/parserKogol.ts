@@ -49,6 +49,20 @@ const NAMA_BULAN: Record<string, string> = {
   "12": "Desember",
 };
 
+// === DAFTAR IDPEL RESMI KCIC ===
+// Hanya IDPEL berikut yang dianggap pelanggan KCIC. Di luar daftar ini = NON-KCIC.
+const DAFTAR_IDPEL_KCIC = new Set<string>([
+  "547104923302",
+  "547104923298",
+  "544104351417",
+  "547104687734",
+  "547104960177",
+]);
+
+// === DAFTAR KODE REGU YANG VALID ===
+// Kode regu selalu 2 karakter, diambil dari digit ke-4 & ke-5 pada No. RBM (format HAA + REGU + PERORANGAN + ...)
+const DAFTAR_REGU_VALID = new Set<string>(["AA", "AM", "BA", "CA", "DA", "MR"]);
+
 export const parseExcelKogolBuffer = (
   buffer: ArrayBuffer,
   fileName: string = ""
@@ -183,6 +197,9 @@ export const parseExcelKogolBuffer = (
       continue;
     }
 
+    // Normalisasi IDPEL (hanya digit) untuk pencocokan yang aman terhadap daftar KCIC
+    const idpelBersih = idpel.replace(/\D/g, "");
+
     const kodeMr = String(row[3] || "").trim().toUpperCase();
     const namaPlgn = String(
       (idxNama !== -1 ? row[idxNama] : null) || row[4] || row[2] || ""
@@ -221,21 +238,28 @@ export const parseExcelKogolBuffer = (
       }
     }
 
-    // Ekstraksi Regu & Petugas (Orang)
-    // Pola: HAA + [REGU 3 HURUF] + angka...
-    // contoh: H A A M R T I 0 0 1 0 7 -> regu: MRT (huruf ke-4,5,6), orang: RT (huruf ke-5,6)
-    // contoh: H A A A A B F 1 0 7 0 0 -> regu: AAB (huruf ke-4,5,6), orang: AB (huruf ke-5,6)
+    // === EKSTRAKSI REGU & KODE PETUGAS (Orang) ===
+    // Format No. RBM: H A A [REGU: 2 huruf] [PERORANGAN: 1 huruf] [angka rute...]
+    // Contoh: H A A M R T I 0 5 3 0 3
+    //   index: 0 1 2 3 4 5 6 7 8 9 ...
+    //   Regu           = karakter index 3-4 -> "MR"
+    //   Kode perorangan = karakter index 5   -> "T"
+    //   Kode petugas lengkap (regu+perorangan) = index 3-5 -> "MRT"
     let regu = "-";
     let idPetugas = "-";
 
     if (rbmRaw.length >= 6) {
-      // Karakter ke-4, ke-5, ke-6 (indeks 3 s/d 6)
-      regu = rbmRaw.substring(3, 6);
-      // Karakter ke-5 dan ke-6 (indeks 4 s/d 6)
-      idPetugas = rbmRaw.substring(4, 6);
+      const reguCandidate = rbmRaw.substring(3, 5); // 2 huruf regu, mis. "MR"
+      const kodePeroranganCandidate = rbmRaw.charAt(5); // 1 huruf kode perorangan, mis. "T"
+      const kodePetugasCandidate = rbmRaw.substring(3, 6); // gabungan regu + perorangan, mis. "MRT"
 
-      if (regu && regu !== "-") setRegu.add(regu);
-      if (idPetugas && idPetugas !== "-") mapPetugas.set(idPetugas, regu);
+      if (DAFTAR_REGU_VALID.has(reguCandidate)) {
+        regu = reguCandidate;
+        idPetugas = kodePetugasCandidate;
+
+        setRegu.add(regu);
+        mapPetugas.set(idPetugas, regu);
+      }
     }
 
     // Rupiah Tunggakan
@@ -256,7 +280,9 @@ export const parseExcelKogolBuffer = (
     }
 
     const isAmr = kodeMr === "MR" || String(row[3] || "").toUpperCase() === "MR";
-    const isKcic = namaPlgn.includes("KCIC");
+    // KCIC ditentukan HANYA berdasarkan kecocokan IDPEL dengan daftar resmi.
+    // Di luar daftar ini selalu dianggap NON-KCIC, apa pun nama pelanggannya.
+    const isKcic = DAFTAR_IDPEL_KCIC.has(idpelBersih);
 
     let kategori: "AMR" | "NON-AMR" | "KCIC" = "NON-AMR";
     if (!isAmr) {

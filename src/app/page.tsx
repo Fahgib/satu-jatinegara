@@ -15,7 +15,6 @@ import {
   Clock,
   ShieldCheck,
   Filter,
-  Flame,
   Search,
   Printer,
   CheckSquare,
@@ -25,6 +24,11 @@ import {
   Users,
   UserCheck,
   ArrowUpDown,
+  Trophy,
+  Target,
+  Layers,
+  BarChart3,
+  Calendar,
 } from "lucide-react";
 import { MetricCard } from "@/components/ui/MetricCard";
 import { parseExcelKogolBuffer, HasilKogol } from "@/lib/parserKogol";
@@ -72,19 +76,19 @@ export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<"RINGKASAN" | "LEMBAR_KERJA">("RINGKASAN");
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const targetSaldo = 982000000;
+  const targetSaldo = 982878731;
 
   useEffect(() => {
     const now = new Date();
     const formatted = new Intl.DateTimeFormat("id-ID", {
       day: "2-digit",
-      month: "long",
+      month: "short",
       year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
     }).format(now);
-    setWaktuSinkronisasi(`${formatted.replace(" pukul", ",")} WIB`);
+    setWaktuSinkronisasi(`${formatted} WIB`);
 
     const cached = localStorage.getItem("satu_jatinegara_history");
     if (cached) {
@@ -126,17 +130,6 @@ export default function DashboardPage() {
         setSimulasiLunas({});
         setFilterRegu("SEMUA");
         setFilterPetugas("SEMUA");
-
-        const now = new Date();
-        const formatted = new Intl.DateTimeFormat("id-ID", {
-          day: "2-digit",
-          month: "long",
-          year: "numeric",
-          hour: "2-digit",
-          minute: "2-digit",
-          hour12: false,
-        }).format(now);
-        setWaktuSinkronisasi(`${formatted.replace(" pukul", ",")} WIB`);
       } catch (err) {
         console.error("Gagal memproses file:", err);
         alert("Gagal membaca struktur Excel. Pastikan berkas adalah laporan resmi KOGOL.");
@@ -185,7 +178,7 @@ export default function DashboardPage() {
   saldoSimulasi = Math.max(0, saldoSimulasi - totalLunasSimulasi);
   plgnSimulasi = Math.max(0, plgnSimulasi - jumlahPelangganLunasSimulasi);
 
-  const capaianPersenSimulasi = (((targetSaldo - saldoSimulasi) / targetSaldo) * 100).toFixed(1);
+  const capaianPersenSimulasi = ((2 - (saldoSimulasi / targetSaldo)) * 100).toFixed(1);
 
   const hasComparison = sortedKeys.length >= 2;
   const prevKey = hasComparison ? sortedKeys[sortedKeys.length - 2] : null;
@@ -205,14 +198,12 @@ export default function DashboardPage() {
     ? ((diffKcicRp / diffTotalRp) * 100).toFixed(1)
     : "0.0";
 
-  // Dropdown Petugas Menyesuaikan Regu yang Dipilih
   const opsiPetugas = useMemo(() => {
     if (!activeData?.daftarPetugas) return [];
     if (filterRegu === "SEMUA") return activeData.daftarPetugas;
     return activeData.daftarPetugas.filter((p) => p.regu === filterRegu);
   }, [activeData, filterRegu]);
 
-  // Filter & Sorting
   const filteredPelanggan = useMemo(() => {
     if (!activeData || !activeData.semuaPelanggan) return [];
 
@@ -224,7 +215,11 @@ export default function DashboardPage() {
 
       const matchKategori = filterKategori === "SEMUA" || p.kategori === filterKategori;
       const matchRegu = filterRegu === "SEMUA" || p.regu === filterRegu;
-      const matchPetugas = filterPetugas === "SEMUA" || p.idPetugas === filterPetugas;
+      const matchPetugas =
+        filterPetugas === "SEMUA" ||
+        p.idPetugas === filterPetugas ||
+        (p as any).kodeAnggota === filterPetugas ||
+        (p as any).kodePerorangan === filterPetugas;
 
       return matchText && matchKategori && matchRegu && matchPetugas;
     });
@@ -236,7 +231,9 @@ export default function DashboardPage() {
       } else if (kolomSortir === "REGU") {
         return String(a.regu || "-").localeCompare(String(b.regu || "-")) * multiplier;
       } else if (kolomSortir === "PETUGAS") {
-        return String(a.idPetugas || "-").localeCompare(String(b.idPetugas || "-")) * multiplier;
+        const ptgA = String((a as any).kodeAnggota || a.idPetugas || "-");
+        const ptgB = String((b as any).kodeAnggota || b.idPetugas || "-");
+        return ptgA.localeCompare(ptgB) * multiplier;
       } else {
         return String(a.nama || "").localeCompare(String(b.nama || "")) * multiplier;
       }
@@ -260,6 +257,71 @@ export default function DashboardPage() {
     return { totalRp, totalPlgn };
   }, [filteredPelanggan]);
 
+  const peringkatRegu = useMemo(() => {
+    if (!activeData || !activeData.semuaPelanggan) {
+      return { list: [] as { regu: string; totalRp: number; totalPlgn: number }[], totalRp: 0, totalPlgn: 0 };
+    }
+
+    const map = new Map<string, { regu: string; totalRp: number; totalPlgn: number }>();
+
+    activeData.semuaPelanggan.forEach((p) => {
+      if (!p.regu || p.regu === "-") return;
+      const existing = map.get(p.regu) || { regu: p.regu, totalRp: 0, totalPlgn: 0 };
+      existing.totalRp += p.rpTunggakan || 0;
+      existing.totalPlgn += 1;
+      map.set(p.regu, existing);
+    });
+
+    const list = Array.from(map.values()).sort((a, b) => b.totalRp - a.totalRp);
+    const totalRp = list.reduce((acc, r) => acc + r.totalRp, 0);
+    const totalPlgn = list.reduce((acc, r) => acc + r.totalPlgn, 0);
+
+    return { list, totalRp, totalPlgn };
+  }, [activeData]);
+
+  const perbandinganBulanan = useMemo(() => {
+    let kumulatifDenganKcic = 0;
+
+    const list = sortedKeys.map((k, idx) => {
+      const item = dataHistory[k];
+      const totalRp = item?.denganKcic?.totalRp || 0;
+      const totalPlgn = item?.denganKcic?.totalPlgn || 0;
+
+      kumulatifDenganKcic += totalRp;
+      const pembagiBulan = idx + 1;
+      const rataKumulatifDenganKcic = kumulatifDenganKcic / pembagiBulan;
+
+      const persenPolaritas = (2 - (rataKumulatifDenganKcic / targetSaldo)) * 100;
+
+      return {
+        key: k,
+        periode: item?.periode || k,
+        totalRp,
+        totalPlgn,
+        pembagiBulan,
+        persen: persenPolaritas,
+      };
+    });
+
+    const totalRpGabungan = list.reduce((acc, x) => acc + x.totalRp, 0);
+    const totalPlgnGabungan = list.reduce((acc, x) => acc + x.totalPlgn, 0);
+    const jumlahBulan = list.length;
+
+    const rataRataRp = jumlahBulan > 0 ? totalRpGabungan / jumlahBulan : 0;
+    const rataRataPlgn = jumlahBulan > 0 ? Math.round(totalPlgnGabungan / jumlahBulan) : 0;
+    const persenTotalAkhir = jumlahBulan > 0 ? (2 - (rataRataRp / targetSaldo)) * 100 : 0;
+
+    return {
+      list,
+      totalRpGabungan,
+      totalPlgnGabungan,
+      jumlahBulan,
+      rataRataRp,
+      rataRataPlgn,
+      persenTotalAkhir,
+    };
+  }, [sortedKeys, dataHistory, targetSaldo]);
+
   const togglePelunasan = (idpel: string) => {
     setSimulasiLunas((prev) => ({
       ...prev,
@@ -280,7 +342,6 @@ export default function DashboardPage() {
         bulan: `${namaBulanSingkat} '${(item.tahun || "26").substring(2)}`,
         Dengan_KCIC: item.denganKcic?.totalRp || 0,
         Tanpa_KCIC: item.tanpaKcic?.totalRp || 0,
-        Target: targetSaldo,
       };
     })
     .filter(Boolean);
@@ -302,7 +363,7 @@ export default function DashboardPage() {
       ["Realisasi Saldo Unit (Dengan KCIC)", activeData.denganKcic.totalRp],
       ["Realisasi Saldo Murni (Tanpa KCIC)", activeData.tanpaKcic.totalRp],
       ["Khusus Entitas KCIC", activeData.kcicOnly.rp],
-      ["Pencapaian Terhadap Target", `${capaianPersenSimulasi}%`],
+      ["Pencapaian Terhadap Target (Polaritas Negatif)", `${capaianPersenSimulasi}%`],
       [],
       ["REKAPITULASI REALISASI SALDO MULTI-PERIODE (RUPIAH)"],
       ["Kategori", "Jenis Pelanggan", ...sortedKeys.map((k) => dataHistory[k].periode)],
@@ -312,20 +373,16 @@ export default function DashboardPage() {
       ["Tanpa KCIC", "NON-AMR", ...sortedKeys.map((k) => dataHistory[k].tanpaKcic.nonAmrRp)],
       ["Khusus KCIC", "AMR KCIC", ...sortedKeys.map((k) => dataHistory[k].kcicOnly.rp)],
       [],
-      ["SEGMENTASI TUNGGAKAN BERDASARKAN GOLONGAN TARIF"],
-      ["Golongan Tarif", "Jumlah Pelanggan", "Nominal Tunggakan (Rp)"],
-      ["Rumah Tangga (R)", activeData.rekapTarif?.R?.plgn || 0, activeData.rekapTarif?.R?.rp || 0],
-      ["Bisnis (B)", activeData.rekapTarif?.B?.plgn || 0, activeData.rekapTarif?.B?.rp || 0],
-      ["Industri (I)", activeData.rekapTarif?.I?.plgn || 0, activeData.rekapTarif?.I?.rp || 0],
-      ["Publik / Pemerintahan (P)", activeData.rekapTarif?.P?.plgn || 0, activeData.rekapTarif?.P?.rp || 0],
-      ["Traksi Kereta / KCIC (T)", activeData.rekapTarif?.T?.plgn || 0, activeData.rekapTarif?.T?.rp || 0],
-      [],
-      ["LEMBAR PENGESAHAN LAPORAN"],
-      ["Disusun Oleh:", "", "Diperiksa Oleh:", "", "Disetujui Oleh:"],
-      ["TL Pengelolaan Piutang", "", "Asman Transaksi Energi", "", "Manager UP3 Jatinegara"],
-      [],
-      [],
-      ["( .................................... )", "", "( .................................... )", "", "( .................................... )"],
+      ["PERINGKAT REGU BERDASARKAN TOTAL TUNGGAKAN"],
+      ["Peringkat", "Regu", "Jumlah Pelanggan", "Total Tunggakan (Rp)", "Kontribusi (%)"],
+      ...peringkatRegu.list.map((r, idx) => [
+        idx + 1,
+        r.regu,
+        r.totalPlgn,
+        r.totalRp,
+        `${peringkatRegu.totalRp > 0 ? ((r.totalRp / peringkatRegu.totalRp) * 100).toFixed(2) : "0.00"}%`,
+      ]),
+      ["", "TOTAL", peringkatRegu.totalPlgn, peringkatRegu.totalRp, "100.00%"],
     ];
 
     const ws1 = XLSX.utils.aoa_to_sheet(sheet1Data);
@@ -336,7 +393,7 @@ export default function DashboardPage() {
       ["TOP 10 PELANGGAN SALDO TUNGGAKAN TERBESAR (PARETO 80/20)"],
       [`PERIODE: ${activeData.periode.toUpperCase()}`],
       [],
-      ["No", "ID Pelanggan", "Nama Pelanggan", "Tarif / Daya", "No RBM", "Regu", "Petugas", "Segmen", "Nominal Tunggakan (Rp)", "Kontribusi (%)"],
+      ["No", "ID Pelanggan", "Nama Pelanggan", "Tarif / Daya", "No RBM", "Regu", "Kode Anggota", "Segmen", "Nominal Tunggakan (Rp)", "Kontribusi (%)"],
     ];
 
     const top10List = (activeData.semuaPelanggan || []).slice(0, 10);
@@ -349,7 +406,7 @@ export default function DashboardPage() {
         p.tarifDaya,
         p.rbm,
         p.regu,
-        p.idPetugas,
+        (p as any).kodeAnggota || p.idPetugas,
         p.kategori,
         p.rpTunggakan,
         `${kontribusi}%`,
@@ -357,15 +414,47 @@ export default function DashboardPage() {
     });
 
     const ws2 = XLSX.utils.aoa_to_sheet(top10Data);
-    ws2["!cols"] = [{ wch: 6 }, { wch: 18 }, { wch: 35 }, { wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 24 }, { wch: 15 }];
+    ws2["!cols"] = [{ wch: 6 }, { wch: 18 }, { wch: 35 }, { wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 14 }, { wch: 12 }, { wch: 24 }, { wch: 15 }];
     XLSX.utils.book_append_sheet(wb, ws2, "Top 10 Prioritas");
+
+    const bandingBulananData: any[][] = [
+      ["PERBANDINGAN & RATA-RATA TAGIHAN ANTAR BULAN"],
+      [`TARGET SALDO RESMI: Rp ${targetSaldo.toLocaleString("id-ID")}`],
+      ["FORMULA POLARITAS NEGATIF: 2 - (Realisasi Kumulatif Dengan KCIC / Target)"],
+      [],
+      ["Periode", "Jumlah Pelanggan", "Total Tagihan (Dengan KCIC)", "Pencapaian Target (%)"],
+    ];
+    perbandinganBulanan.list.forEach((b) => {
+      bandingBulananData.push([
+        b.periode,
+        b.totalPlgn,
+        b.totalRp,
+        `${b.persen.toFixed(2)}%`,
+      ]);
+    });
+    bandingBulananData.push([
+      `TOTAL GABUNGAN (${perbandinganBulanan.jumlahBulan} Bulan)`,
+      perbandinganBulanan.totalPlgnGabungan,
+      perbandinganBulanan.totalRpGabungan,
+      "—",
+    ]);
+    bandingBulananData.push([
+      "RATA-RATA / BULAN",
+      perbandinganBulanan.rataRataPlgn,
+      Math.round(perbandinganBulanan.rataRataRp),
+      `${perbandinganBulanan.persenTotalAkhir.toFixed(2)}%`,
+    ]);
+
+    const wsBanding = XLSX.utils.aoa_to_sheet(bandingBulananData);
+    wsBanding["!cols"] = [{ wch: 20 }, { wch: 18 }, { wch: 28 }, { wch: 25 }];
+    XLSX.utils.book_append_sheet(wb, wsBanding, "Perbandingan Bulanan");
 
     const semuaData: any[][] = [
       ["DAFTAR LENGKAP TUNGGAKAN PELANGGAN KOGOL UNIT JATINEGARA"],
       [`PERIODE: ${activeData.periode.toUpperCase()}`],
       [`FILTER AKTIF: Regu [${filterRegu}] | Petugas [${filterPetugas}] | Kategori [${filterKategori}]`],
       [],
-      ["No", "ID Pelanggan", "Nama Pelanggan", "Tarif / Daya", "Nomor RBM", "Regu", "Petugas", "Segmen", "Golongan", "Nominal Tunggakan (Rp)", "Status Lapangan", "Catatan Petugas"],
+      ["No", "ID Pelanggan", "Nama Pelanggan", "Tarif / Daya", "Nomor RBM", "Regu", "Kode Anggota", "Digit ke-6", "Segmen", "Nominal Tunggakan (Rp)"],
     ];
 
     filteredPelanggan.forEach((p, idx) => {
@@ -376,29 +465,27 @@ export default function DashboardPage() {
         p.tarifDaya,
         p.rbm,
         p.regu,
-        p.idPetugas,
+        (p as any).kodeAnggota || p.idPetugas,
+        (p as any).kodePerorangan || "-",
         p.kategori,
-        p.kelompokTarif,
         p.rpTunggakan,
-        "",
-        "",
       ]);
     });
 
     const ws3 = XLSX.utils.aoa_to_sheet(semuaData);
-    ws3["!cols"] = [{ wch: 6 }, { wch: 18 }, { wch: 35 }, { wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 10 }, { wch: 24 }, { wch: 18 }, { wch: 25 }];
+    ws3["!cols"] = [{ wch: 6 }, { wch: 18 }, { wch: 35 }, { wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 14 }, { wch: 10 }, { wch: 12 }, { wch: 24 }];
     XLSX.utils.book_append_sheet(wb, ws3, "Data Lengkap Pelanggan");
 
     XLSX.writeFile(
       wb,
-      `PLN_UP3_Jatinegara_KOGOL_${activeData.periode.replace(/\s+/g, "_")}_Regu_${filterRegu}_Petugas_${filterPetugas}.xlsx`
+      `PLN_UP3_Jatinegara_KOGOL_${activeData.periode.replace(/\s+/g, "_")}_Regu_${filterRegu}.xlsx`
     );
   };
 
   const donutPelanggan = activeData
     ? [
         { name: "AMR", value: activeData.denganKcic?.amrPlgn || 0, color: "#005C8A" },
-        { name: "NON-AMR", value: activeData.denganKcic?.nonAmrPlgn || 0, color: "#FFD100" },
+        { name: "NON-AMR", value: activeData.denganKcic?.nonAmrPlgn || 0, color: "#E2E8F0" },
       ]
     : [];
 
@@ -410,8 +497,8 @@ export default function DashboardPage() {
     : [];
 
   return (
-    <main className="min-h-screen bg-[#F4F7F9] p-4 lg:p-8 space-y-6 print:bg-white print:p-2">
-      {/* Kop Cetak PDF */}
+    <main className="min-h-screen bg-[#F4F6F9] text-slate-800 font-sans pb-16 antialiased print:bg-white print:p-2">
+      {/* KOP CETAK PDF RESMI PLN */}
       {activeData && (
         <div className="hidden print:block border-b-2 border-slate-900 pb-3 mb-4">
           <div className="flex justify-between items-start">
@@ -424,8 +511,8 @@ export default function DashboardPage() {
               </div>
             </div>
             <div className="text-right text-[10px] text-slate-600 space-y-0.5">
-              <div>No. Dokumen : <strong>PLN-UP3JTN/KOGOL/{activeData.tahun}/{activeData.kodeBulan}</strong></div>
-              <div>Penugasan   : <strong>Regu {filterRegu} / Petugas {filterPetugas}</strong></div>
+              <div>No. Dokumen: <strong>PLN-UP3JTN/KOGOL/{activeData.tahun}/{activeData.kodeBulan}</strong></div>
+              <div>Penugasan: <strong>Regu {filterRegu} / Petugas {filterPetugas}</strong></div>
               <div>Tanggal Cetak: <strong>{waktuSinkronisasi}</strong></div>
             </div>
           </div>
@@ -438,74 +525,59 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Header Korporat PLN Layar Web */}
-      <header className="bg-white rounded-2xl p-6 border border-slate-200 shadow-xs space-y-4 print:hidden">
-        <div className="flex flex-col xl:flex-row justify-between xl:items-center gap-5 border-b border-slate-100 pb-5">
-          <div className="flex items-center gap-4">
-            <div className="p-2 bg-slate-50 border border-slate-200/80 rounded-xl shadow-xs">
-              <PlnLogo className="w-10 h-12" />
-            </div>
+      {/* TOP NAVBAR ENTERPRISE BUMN */}
+      <header className="sticky top-0 z-40 bg-white border-b border-slate-200/90 shadow-2xs print:hidden">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <PlnLogo className="w-7 h-9 shrink-0" />
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-black tracking-widest text-[#005C8A] uppercase">
-                  PT PLN (Persero)
-                </span>
-                <span className="text-slate-300">•</span>
-                <span className="text-xs font-bold text-slate-500">
-                  UID Jakarta Raya — UP3 Jatinegara
-                </span>
+                <span className="text-[11px] font-black tracking-widest text-[#005C8A] uppercase">PT PLN (Persero)</span>
+                <span className="text-slate-300">/</span>
+                <span className="text-[11px] font-semibold text-slate-500">UID Jakarta Raya — UP3 Jatinegara</span>
               </div>
-              <h1 className="text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2.5 mt-0.5">
-                SATU JATINEGARA
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded-md bg-sky-50 text-[#005C8A] border border-sky-200">
-                  Enterprise Suite
-                </span>
+              <h1 className="text-sm font-bold text-slate-900 tracking-tight">
+                SATU JATINEGARA — KOGOL Performance Suite
               </h1>
-              <p className="text-xs text-slate-500 mt-0.5">
-                Monitoring KOGOL, Alokasi RBM Regu & Penugasan Harian Billman/Tusbung
-              </p>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2.5">
+          <div className="flex items-center gap-2">
             {activeData && (
               <>
                 <button
                   onClick={handlePrint}
-                  className="flex items-center gap-2 bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold px-3.5 py-2.5 rounded-lg shadow-xs transition"
-                  title="Cetak format resume / lembar penugasan"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg shadow-2xs transition"
                 >
-                  <Printer className="w-4 h-4" />
+                  <Printer className="w-3.5 h-3.5 text-slate-500" />
                   <span>Cetak (PDF)</span>
                 </button>
-
                 <button
                   onClick={handleDownloadExcel}
-                  className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold px-3.5 py-2.5 rounded-lg shadow-xs transition"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-2xs transition"
                 >
-                  <FileSpreadsheet className="w-4 h-4" />
+                  <FileSpreadsheet className="w-3.5 h-3.5" />
                   <span>Excel ({sortedKeys.length} Bln)</span>
                 </button>
-
                 <button
                   onClick={() => downloadPresentationPptx(activeData, modeLaporan, dataHistory)}
-                  className="flex items-center gap-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-3.5 py-2.5 rounded-lg shadow-xs transition"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg shadow-2xs transition"
                 >
-                  <Presentation className="w-4 h-4" />
-                  <span>Unduh PPTX</span>
+                  <Presentation className="w-3.5 h-3.5 text-amber-600" />
+                  <span>PPTX</span>
                 </button>
               </>
             )}
 
-            <label className="cursor-pointer flex items-center gap-2 bg-[#005C8A] hover:bg-[#00476B] text-white text-xs font-semibold px-4 py-2.5 rounded-lg shadow-xs transition">
+            <label className="cursor-pointer inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold text-white bg-[#005C8A] hover:bg-[#00476B] rounded-lg shadow-2xs transition">
               {sortedKeys.length === 0 ? (
                 <>
-                  <Upload className="w-4 h-4" />
-                  <span>Unggah Excel KOGOL</span>
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Unggah KOGOL</span>
                 </>
               ) : (
                 <>
-                  <PlusCircle className="w-4 h-4" />
+                  <PlusCircle className="w-3.5 h-3.5" />
                   <span>Tambah Bulan</span>
                 </>
               )}
@@ -522,136 +594,133 @@ export default function DashboardPage() {
               <button
                 onClick={handleResetData}
                 title="Reset Semua Data"
-                className="p-2.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg border border-slate-200 transition"
+                className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg border border-slate-200 transition"
               >
                 <RotateCcw className="w-4 h-4" />
               </button>
             )}
           </div>
         </div>
+      </header>
 
-        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-3 text-xs">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-semibold text-slate-500">Status Operasional:</span>
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-6">
+        {/* SUB-BAR OPERASIONAL STATUS */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white px-4 py-2.5 rounded-xl border border-slate-200/80 shadow-2xs text-xs print:hidden">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 font-bold border border-emerald-200">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               KOGOL 0 AKHIR
             </span>
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-sky-50 text-[#005C8A] font-bold border border-sky-200">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-50 text-[#005C8A] font-semibold border border-sky-200">
               <ShieldCheck className="w-3.5 h-3.5" />
-              SIAP AUDIT
+              5 IDPEL KCIC Terverifikasi
             </span>
             {activeData && (
-              <span className="px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 font-semibold border border-amber-200">
-                Fokus Periode: <b>{activeData.periode}</b>
+              <span className="text-slate-500 pl-2">
+                Periode Aktif: <strong className="text-slate-900">{activeData.periode}</strong>
               </span>
             )}
           </div>
-
-          <div className="flex items-center gap-1.5 text-slate-500 font-medium">
-            <Clock className="w-3.5 h-3.5 text-slate-400" />
-            <span>Sinkronisasi Terakhir:</span>
-            <strong className="text-slate-700">{waktuSinkronisasi || "Menunggu data..."}</strong>
+          <div className="text-slate-400 flex items-center gap-1.5">
+            <Clock className="w-3.5 h-3.5" />
+            <span>Sinkronisasi: {waktuSinkronisasi || "-"}</span>
           </div>
         </div>
-      </header>
 
-      {sortedKeys.length === 0 ? (
-        <div className="bg-white border-2 border-dashed border-slate-300 rounded-2xl p-16 text-center flex flex-col items-center justify-center space-y-4">
-          <div className="w-16 h-16 bg-sky-50 text-[#005C8A] rounded-full flex items-center justify-center">
-            <Upload className="w-8 h-8" />
-          </div>
-          <div>
-            <h3 className="text-base font-bold text-slate-800">Sistem Siap Menerima Data KOGOL</h3>
-            <p className="text-xs text-slate-500 max-w-sm mx-auto mt-1">
-              Silakan unggah berkas KOGOL pertama Anda melalui tombol di sudut kanan atas untuk mengaktifkan kalkulasi otomatis dan pemetaan regu RBM.
+        {sortedKeys.length === 0 ? (
+          <div className="bg-white border-2 border-dashed border-slate-300 rounded-2xl p-16 text-center flex flex-col items-center justify-center space-y-3 shadow-2xs">
+            <div className="w-12 h-12 bg-sky-50 text-[#005C8A] rounded-xl flex items-center justify-center border border-sky-100">
+              <Upload className="w-6 h-6" />
+            </div>
+            <h3 className="text-sm font-bold text-slate-800">Menunggu Berkas Excel KOGOL</h3>
+            <p className="text-xs text-slate-500 max-w-sm">
+              Klik tombol &quot;Unggah KOGOL&quot; untuk mengaktifkan pemantauan tagihan antar-bulan, ranking per regu, dan lembar kerja penagihan.
             </p>
           </div>
-        </div>
-      ) : (
-        <>
-          {/* Navigasi Tab & Periode */}
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-white px-5 py-3 rounded-xl border border-slate-200 shadow-xs print:hidden">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Periode:</span>
-              <div className="flex flex-wrap gap-1.5">
-                {sortedKeys.map((k) => (
-                  <button
-                    key={k}
-                    onClick={() => {
-                      setSelectedKey(k);
-                      setSimulasiLunas({});
-                    }}
-                    className={`px-3 py-1 text-xs font-bold rounded-lg transition ${
-                      k === selectedKey ? "bg-[#005C8A] text-white shadow-xs" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                    }`}
-                  >
-                    {dataHistory[k]?.periode || k}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs font-semibold">
-              <button
-                onClick={() => setActiveTab("RINGKASAN")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition ${
-                  activeTab === "RINGKASAN" ? "bg-white text-[#005C8A] shadow-xs font-bold" : "text-slate-500"
-                }`}
-              >
-                <Building2 className="w-3.5 h-3.5" />
-                <span>Dashboard Eksekutif</span>
-              </button>
-              <button
-                onClick={() => setActiveTab("LEMBAR_KERJA")}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition ${
-                  activeTab === "LEMBAR_KERJA" ? "bg-white text-[#005C8A] shadow-xs font-bold" : "text-slate-500"
-                }`}
-              >
-                <FileText className="w-3.5 h-3.5" />
-                <span>Lembar Kerja Petugas</span>
-              </button>
-            </div>
-          </div>
-
-          {activeData && (
+        ) : (
+          activeData && (
             <>
-              {activeTab === "RINGKASAN" ? (
+              {/* TAB SELECTOR PERIODE & TOGGLE DASHBOARD/LEMBAR KERJA */}
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs print:hidden">
+                <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pl-1">
+                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider pr-1">Bulan:</span>
+                  {sortedKeys.map((k) => (
+                    <button
+                      key={k}
+                      onClick={() => {
+                        setSelectedKey(k);
+                        setSimulasiLunas({});
+                      }}
+                      className={`px-3 py-1 rounded-lg text-xs font-bold transition ${
+                        k === selectedKey
+                          ? "bg-[#005C8A] text-white shadow-2xs"
+                          : "text-slate-600 hover:bg-slate-100"
+                      }`}
+                    >
+                      {dataHistory[k]?.periode || k}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-2 w-full md:w-auto justify-end">
+                  <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs font-semibold">
+                    <button
+                      onClick={() => setActiveTab("RINGKASAN")}
+                      className={`flex items-center gap-1.5 px-3 py-1 rounded-md transition ${
+                        activeTab === "RINGKASAN" ? "bg-white text-[#005C8A] shadow-xs font-bold" : "text-slate-500 hover:text-slate-700"
+                      }`}
+                    >
+                      <Building2 className="w-3.5 h-3.5" />
+                      <span>Dashboard Eksekutif</span>
+                    </button>
+                    <button
+                      onClick={() => setActiveTab("LEMBAR_KERJA")}
+                      className={`flex items-center gap-1.5 px-3 py-1 rounded-md transition ${
+                        activeTab === "LEMBAR_KERJA" ? "bg-white text-[#005C8A] shadow-xs font-bold" : "text-slate-500 hover:text-slate-700"
+                      }`}
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      <span>Lembar Kerja Petugas</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {activeTab === "RINGKASAN" && (
                 <>
-                  {/* Simulasi Dampak Saldo */}
-                  <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3 print:hidden">
-                    <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+                  {/* BAR FILTER SKENARIO WHAT-IF */}
+                  <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs space-y-2 print:hidden">
+                    <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3">
                       <div className="flex items-center gap-2 text-xs">
-                        <div className="p-2 rounded-lg bg-sky-50 text-[#005C8A]">
+                        <div className="p-1.5 rounded-lg bg-sky-50 text-[#005C8A]">
                           <Filter className="w-4 h-4" />
                         </div>
                         <div>
-                          <span className="font-bold text-slate-800 uppercase tracking-wider">Simulasi Skenario Dampak Saldo</span>
-                          <p className="text-slate-500">Pilih skenario atau centang pelanggan yang telah melunasi tagihan:</p>
+                          <span className="font-bold text-slate-800 uppercase tracking-wider text-[11px]">Skenario Portofolio:</span>
                         </div>
                       </div>
 
-                      <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 text-xs font-semibold">
+                      <div className="flex bg-slate-100 p-1 rounded-lg border border-slate-200 text-xs font-semibold">
                         <button
                           onClick={() => setSkenario("SEMUA")}
-                          className={`px-3 py-1.5 rounded-lg transition ${
-                            skenario === "SEMUA" ? "bg-white text-[#005C8A] shadow-xs font-bold" : "text-slate-500"
+                          className={`px-3 py-1 rounded-md transition ${
+                            skenario === "SEMUA" ? "bg-white text-slate-900 shadow-2xs" : "text-slate-500 hover:text-slate-700"
                           }`}
                         >
-                          Semua Tagihan
+                          Semua Portofolio
                         </button>
                         <button
                           onClick={() => setSkenario("TANPA_KCIC")}
-                          className={`px-3 py-1.5 rounded-lg transition ${
-                            skenario === "TANPA_KCIC" ? "bg-white text-[#EA580C] shadow-xs font-bold" : "text-slate-500"
+                          className={`px-3 py-1 rounded-md transition ${
+                            skenario === "TANPA_KCIC" ? "bg-white text-[#005C8A] shadow-2xs font-bold" : "text-slate-500 hover:text-slate-700"
                           }`}
                         >
-                          Keluarkan KCIC
+                          Keluarkan KCIC (5 IDPEL)
                         </button>
                         <button
                           onClick={() => setSkenario("HANYA_NON_AMR")}
-                          className={`px-3 py-1.5 rounded-lg transition ${
-                            skenario === "HANYA_NON_AMR" ? "bg-white text-emerald-700 shadow-xs font-bold" : "text-slate-500"
+                          className={`px-3 py-1 rounded-md transition ${
+                            skenario === "HANYA_NON_AMR" ? "bg-white text-emerald-700 shadow-2xs font-bold" : "text-slate-500 hover:text-slate-700"
                           }`}
                         >
                           Hanya Non-AMR
@@ -678,65 +747,122 @@ export default function DashboardPage() {
                     )}
                   </div>
 
-                  {/* Target Saldo Card */}
-                  <div className="bg-[#003B5C] rounded-xl p-4 text-white flex justify-between items-center shadow-xs">
-                    <div>
-                      <span className="text-[11px] font-bold text-sky-200 uppercase tracking-wider">
-                        Pencapaian Target Saldo ({skenario.replace(/_/g, " ")}) — {activeData.periode}
-                      </span>
-                      <div className="text-2xl font-black text-rose-400">{capaianPersenSimulasi}%</div>
-                    </div>
-                    <div className="text-right text-xs text-slate-200">
-                      <div>Target: <strong>Rp {(targetSaldo / 1e6).toFixed(0)} Juta</strong></div>
+                  {/* BENTO GRID ROW 1: BANNER TARGET POLARITAS NEGATIF & DUAL METRIC CARDS */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                    {/* Banner Target Polaritas Negatif */}
+                    <div className="lg:col-span-4 bg-[#003B5C] rounded-2xl p-5 text-white shadow-xs border border-sky-950 flex flex-col justify-between">
                       <div>
-                        Sisa Tunggakan Skenario: <strong>Rp {(saldoSimulasi / 1e9).toFixed(2)} M</strong> ({plgnSimulasi} Plgn)
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-bold text-sky-200 uppercase tracking-wider flex items-center gap-1.5">
+                            <Target className="w-3.5 h-3.5 text-amber-400" />
+                            Pencapaian Target Saldo
+                          </span>
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-sky-900/80 text-sky-200 border border-sky-700/50 font-bold">
+                            {skenario.replace(/_/g, " ")}
+                          </span>
+                        </div>
+                        <div className="text-4xl font-black text-rose-400 mt-3 tracking-tight">
+                          {capaianPersenSimulasi}%
+                        </div>
+                        <p className="text-[11px] text-sky-200/70 mt-1">
+                          Polaritas Negatif: 2 - (Realisasi : Target)
+                        </p>
+                      </div>
+
+                      <div className="mt-5 pt-3.5 border-t border-sky-800/80 grid grid-cols-2 gap-2 text-xs">
+                        <div>
+                          <span className="text-sky-300/80 text-[10px] block uppercase font-bold">Batas Target Unit</span>
+                          <strong className="text-white">Rp {(targetSaldo / 1e6).toFixed(0)} Jt</strong>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-sky-300/80 text-[10px] block uppercase font-bold">Sisa Tunggakan</span>
+                          <strong className="text-amber-300">Rp {(saldoSimulasi / 1e9).toFixed(2)} M</strong>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Card Dengan KCIC */}
+                    <div className="lg:col-span-4 bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 mb-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full bg-[#005C8A]" />
+                            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Total Tagihan (Dengan KCIC)</h3>
+                          </div>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-sky-50 text-[#005C8A] border border-sky-100">
+                            Resmi
+                          </span>
+                        </div>
+
+                        <span className="text-[11px] text-slate-400 font-medium block uppercase">Total Piutang Portofolio</span>
+                        <div className="text-2xl font-black text-[#005C8A] mt-0.5">
+                          Rp {(activeData.denganKcic?.totalRp || 0).toLocaleString("id-ID")}
+                        </div>
+                        <span className="text-xs text-slate-500 mt-1 block">
+                          Beban Pelanggan: <strong className="text-slate-800">{activeData.denganKcic?.totalPlgn || 0} IDPEL</strong>
+                        </span>
+                      </div>
+
+                      <div className="mt-4 pt-3 border-t border-slate-100 grid grid-cols-2 text-xs text-slate-600 bg-slate-50/70 p-2 rounded-xl">
+                        <div>AMR: <strong>Rp {((activeData.denganKcic?.amrRp || 0) / 1e6).toFixed(1)} Jt</strong></div>
+                        <div className="text-right">Non-AMR: <strong>Rp {((activeData.denganKcic?.nonAmrRp || 0) / 1e6).toFixed(1)} Jt</strong></div>
+                      </div>
+                    </div>
+
+                    {/* Card Tanpa KCIC */}
+                    <div className="lg:col-span-4 bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 mb-3">
+                          <div className="flex items-center gap-2">
+                            <div className="w-2 h-2 rounded-full bg-amber-500" />
+                            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">Total Tagihan (Tanpa KCIC)</h3>
+                          </div>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-100">
+                            Reguler
+                          </span>
+                        </div>
+
+                        <span className="text-[11px] text-slate-400 font-medium block uppercase">Piutang Murni Reguler</span>
+                        <div className="text-2xl font-black text-slate-900 mt-0.5">
+                          Rp {(activeData.tanpaKcic?.totalRp || 0).toLocaleString("id-ID")}
+                        </div>
+                        <span className="text-xs text-slate-500 mt-1 block">
+                          Beban Pelanggan: <strong className="text-slate-800">{activeData.tanpaKcic?.totalPlgn || 0} IDPEL</strong>
+                        </span>
+                      </div>
+
+                      <div className="mt-4 pt-3 border-t border-slate-100 grid grid-cols-2 text-xs text-slate-600 bg-slate-50/70 p-2 rounded-xl">
+                        <div>AMR: <strong>Rp {((activeData.tanpaKcic?.amrRp || 0) / 1e6).toFixed(1)} Jt</strong></div>
+                        <div className="text-right">Non-AMR: <strong>Rp {((activeData.tanpaKcic?.nonAmrRp || 0) / 1e6).toFixed(1)} Jt</strong></div>
                       </div>
                     </div>
                   </div>
 
-                  {/* Dual Metric Cards */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <MetricCard
-                      title={`DENGAN KCIC — ${(activeData.periode || "").toUpperCase()}`}
-                      totalPlgn={activeData.denganKcic?.totalPlgn || 0}
-                      amrPlgn={activeData.denganKcic?.amrPlgn || 0}
-                      nonAmrPlgn={activeData.denganKcic?.nonAmrPlgn || 0}
-                      totalRp={activeData.denganKcic?.totalRp || 0}
-                      amrRp={activeData.denganKcic?.amrRp || 0}
-                      nonAmrRp={activeData.denganKcic?.nonAmrRp || 0}
-                      theme="blue"
-                    />
-                    <MetricCard
-                      title={`TANPA KCIC — ${(activeData.periode || "").toUpperCase()}`}
-                      totalPlgn={activeData.tanpaKcic?.totalPlgn || 0}
-                      amrPlgn={activeData.tanpaKcic?.amrPlgn || 0}
-                      nonAmrPlgn={activeData.tanpaKcic?.nonAmrPlgn || 0}
-                      totalRp={activeData.tanpaKcic?.totalRp || 0}
-                      amrRp={activeData.tanpaKcic?.amrRp || 0}
-                      nonAmrRp={activeData.tanpaKcic?.nonAmrRp || 0}
-                      theme="orange"
-                    />
-                  </div>
-
-                  {/* Segmentasi Berdasarkan Tarif & Daya */}
+                  {/* BENTO GRID ROW 2: SEGMENTASI GOLONGAN TARIF */}
                   {activeData.rekapTarif && (
-                    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
-                      <h4 className="text-xs font-bold text-slate-700 uppercase mb-3">
-                        Segmentasi Piutang Berdasarkan Golongan Tarif ({activeData.periode})
-                      </h4>
+                    <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs">
+                      <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-2.5">
+                        <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                          <Layers className="w-4 h-4 text-[#005C8A]" />
+                          Segmentasi Piutang Golongan Tarif ({activeData.periode})
+                        </h3>
+                        <span className="text-[11px] text-slate-400">Rincian Kelompok Tarif Pelanggan</span>
+                      </div>
                       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
                         {[
-                          { label: "Rumah Tangga (R)", key: "R", color: "border-sky-500 text-sky-700" },
-                          { label: "Bisnis (B)", key: "B", color: "border-amber-500 text-amber-700" },
-                          { label: "Industri (I)", key: "I", color: "border-purple-500 text-purple-700" },
-                          { label: "Publik / Kantor (P)", key: "P", color: "border-emerald-500 text-emerald-700" },
-                          { label: "Kereta Cepat (T / KCIC)", key: "T", color: "border-rose-500 text-rose-700" },
+                          { label: "Rumah Tangga (R)", key: "R", badge: "bg-sky-50 text-sky-700 border-sky-200" },
+                          { label: "Bisnis (B)", key: "B", badge: "bg-amber-50 text-amber-700 border-amber-200" },
+                          { label: "Industri (I)", key: "I", badge: "bg-purple-50 text-purple-700 border-purple-200" },
+                          { label: "Publik / Kantor (P)", key: "P", badge: "bg-emerald-50 text-emerald-700 border-emerald-200" },
+                          { label: "Kereta Cepat (T / KCIC)", key: "T", badge: "bg-rose-50 text-rose-700 border-rose-200" },
                         ].map((t) => {
                           const val = activeData.rekapTarif[t.key] || { plgn: 0, rp: 0 };
                           return (
-                            <div key={t.key} className={`p-3 rounded-lg border-l-4 bg-slate-50/70 border-slate-200 ${t.color}`}>
-                              <span className="text-[10px] font-bold text-slate-500 block uppercase">{t.label}</span>
-                              <div className="text-sm font-black text-slate-900 mt-1">
+                            <div key={t.key} className="p-3 rounded-xl border border-slate-100 bg-slate-50/60">
+                              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-md inline-block border ${t.badge}`}>
+                                {t.label}
+                              </span>
+                              <div className="text-base font-black text-slate-900 mt-2">
                                 Rp {(val.rp / 1e6).toFixed(1)} Jt
                               </div>
                               <span className="text-[11px] text-slate-500">{val.plgn} Pelanggan</span>
@@ -747,84 +873,155 @@ export default function DashboardPage() {
                     </div>
                   )}
 
-                  {/* Charts Multi-Bulan & Donut */}
-                  <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 print:hidden">
-                    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs lg:col-span-2">
-                      <h4 className="text-xs font-bold text-slate-700 uppercase mb-4">
-                        Tingkat Realisasi Multi-Bulan (Dengan vs Tanpa KCIC)
-                      </h4>
-                      <div className="h-60">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={barChartData}>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                            <XAxis dataKey="bulan" />
-                            <YAxis tickFormatter={(val) => `${(val / 1e9).toFixed(1)}M`} />
-                            <Tooltip formatter={(val: any) => `Rp ${Number(val).toLocaleString("id-ID")}`} />
-                            <Bar dataKey="Dengan_KCIC" fill="#EA580C" radius={[4, 4, 0, 0]} name="Dengan KCIC" maxBarSize={45} />
-                            <Bar dataKey="Tanpa_KCIC" fill="#005C8A" radius={[4, 4, 0, 0]} name="Tanpa KCIC" maxBarSize={45} />
-                          </BarChart>
-                        </ResponsiveContainer>
+                  {/* BENTO GRID ROW 3: TABEL PEMANTAUAN BULANAN & LEADERBOARD REGU */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+                    {/* Perbandingan Antar-Bulan (Kolom Tanpa-KCIC Resmi Ditiadakan) */}
+                    <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col justify-between">
+                      <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                        <div>
+                          <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                            Perbandingan & Rata-Rata Tagihan Antar Bulan
+                          </h3>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            Polaritas Negatif: <b>2 - (Realisasi Dengan KCIC : Target)</b> [Target Rp {(targetSaldo / 1e6).toFixed(0)} Jt]
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs text-left">
+                          <thead className="bg-slate-50/80 text-slate-600 font-bold border-b border-slate-100">
+                            <tr>
+                              <th className="py-2.5 px-4">Periode</th>
+                              <th className="py-2.5 px-3 text-center">Pelanggan</th>
+                              <th className="py-2.5 px-4 text-right">Total Tagihan (Dengan KCIC)</th>
+                              <th className="py-2.5 px-4 text-right">Capaian Target (%)</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 text-slate-700">
+                            {perbandinganBulanan.list.map((b) => (
+                              <tr key={b.key} className={b.key === selectedKey ? "bg-sky-50/40 font-medium" : "hover:bg-slate-50/50"}>
+                                <td className="py-2.5 px-4 text-slate-900 font-bold">
+                                  {b.periode}
+                                  <span className="ml-1.5 text-[10px] text-slate-400 font-normal">(Bln ke-{b.pembagiBulan})</span>
+                                </td>
+                                <td className="py-2.5 px-3 text-center">{b.totalPlgn}</td>
+                                <td className="py-2.5 px-4 text-right font-bold text-[#005C8A]">
+                                  Rp {b.totalRp.toLocaleString("id-ID")}
+                                </td>
+                                <td className="py-2.5 px-4 text-right">
+                                  <span
+                                    className={`inline-block px-2 py-0.5 rounded-md font-black text-xs ${
+                                      b.persen >= 100
+                                        ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                        : "bg-rose-50 text-rose-700 border border-rose-200"
+                                    }`}
+                                  >
+                                    {b.persen.toFixed(1)}%
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot className="bg-slate-50 font-black text-slate-900 border-t border-slate-200">
+                            <tr>
+                              <td className="py-2.5 px-4">TOTAL GABUNGAN ({perbandinganBulanan.jumlahBulan} Bln)</td>
+                              <td className="py-2.5 px-3 text-center">{perbandinganBulanan.totalPlgnGabungan}</td>
+                              <td className="py-2.5 px-4 text-right text-[#005C8A]">
+                                Rp {perbandinganBulanan.totalRpGabungan.toLocaleString("id-ID")}
+                              </td>
+                              <td className="py-2.5 px-4 text-right text-slate-400">—</td>
+                            </tr>
+                            <tr className="bg-sky-50/60 text-[#005C8A] font-bold border-t border-slate-100">
+                              <td className="py-2.5 px-4">RATA-RATA / BULAN</td>
+                              <td className="py-2.5 px-3 text-center">{perbandinganBulanan.rataRataPlgn}</td>
+                              <td className="py-2.5 px-4 text-right">
+                                Rp {Math.round(perbandinganBulanan.rataRataRp).toLocaleString("id-ID")}
+                              </td>
+                              <td className="py-2.5 px-4 text-right font-black">
+                                {perbandinganBulanan.persenTotalAkhir.toFixed(1)}%
+                              </td>
+                            </tr>
+                          </tfoot>
+                        </table>
                       </div>
                     </div>
 
-                    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
-                      <h4 className="text-xs font-bold text-slate-700 uppercase mb-4">
-                        % Pelanggan ({(activeData.periode || "").split(" ")[0]})
-                      </h4>
-                      <div className="h-60">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
-                            <Pie data={donutPelanggan} dataKey="value" innerRadius={50} outerRadius={75} paddingAngle={4}>
-                              {donutPelanggan.map((entry, idx) => (
-                                <Cell key={`cell-${idx}`} fill={entry.color} />
-                              ))}
-                            </Pie>
-                            <Tooltip />
-                          </PieChart>
-                        </ResponsiveContainer>
+                    {/* Peringkat Beban Per Regu */}
+                    <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col justify-between">
+                      <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Trophy className="w-4 h-4 text-amber-500" />
+                          <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                            Peringkat Regu ({activeData.periode})
+                          </h3>
+                        </div>
+                        <span className="text-[11px] text-slate-400">Tertinggi ke Terendah</span>
                       </div>
-                    </div>
 
-                    <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs">
-                      <h4 className="text-xs font-bold text-slate-700 uppercase mb-4">
-                        % Rupiah ({(activeData.periode || "").split(" ")[0]})
-                      </h4>
-                      <div className="h-60">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
-                            <Pie data={donutRupiah} dataKey="value" innerRadius={50} outerRadius={75} paddingAngle={4}>
-                              {donutRupiah.map((entry, idx) => (
-                                <Cell key={`cell-rp-${idx}`} fill={entry.color} />
-                              ))}
-                            </Pie>
-                            <Tooltip formatter={(val: any) => `Rp ${Number(val).toLocaleString("id-ID")}`} />
-                          </PieChart>
-                        </ResponsiveContainer>
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs text-left">
+                          <thead className="bg-slate-50/80 text-slate-600 font-bold border-b border-slate-100">
+                            <tr>
+                              <th className="py-2.5 px-3 w-10 text-center">No</th>
+                              <th className="py-2.5 px-3">Regu</th>
+                              <th className="py-2.5 px-3 text-center">IDPEL</th>
+                              <th className="py-2.5 px-4 text-right">Tunggakan (Rp)</th>
+                              <th className="py-2.5 px-3 text-right">Porsi</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 text-slate-700">
+                            {peringkatRegu.list.map((r, idx) => {
+                              const porsi = ((r.totalRp / (peringkatRegu.totalRp || 1)) * 100).toFixed(1);
+                              return (
+                                <tr key={r.regu} className="hover:bg-slate-50/50 transition">
+                                  <td className="py-2 px-3 text-center font-bold text-slate-400">{idx + 1}</td>
+                                  <td className="py-2 px-3 font-bold text-[#005C8A]">REGU {r.regu}</td>
+                                  <td className="py-2 px-3 text-center">{r.totalPlgn}</td>
+                                  <td className="py-2 px-4 text-right font-black text-slate-900">
+                                    Rp {r.totalRp.toLocaleString("id-ID")}
+                                  </td>
+                                  <td className="py-2 px-3 text-right font-semibold text-slate-500">{porsi}%</td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                          <tfoot className="bg-slate-50 font-black text-slate-900 border-t border-slate-200">
+                            <tr>
+                              <td colSpan={2} className="py-2.5 px-3 uppercase">Total Regu</td>
+                              <td className="py-2.5 px-3 text-center">{peringkatRegu.totalPlgn}</td>
+                              <td className="py-2.5 px-4 text-right text-[#005C8A]">
+                                Rp {peringkatRegu.totalRp.toLocaleString("id-ID")}
+                              </td>
+                              <td className="py-2.5 px-3 text-right">100%</td>
+                            </tr>
+                          </tfoot>
+                        </table>
                       </div>
                     </div>
                   </div>
 
-                  {/* Panel Komparasi Antar-Bulan */}
+                  {/* BENTO GRID ROW 4: ANALISIS KOMPARASI KINERJA (MoM) & INSIGHT */}
                   {hasComparison && prevData && currData && (
-                    <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden print:border-none">
-                      <div className="bg-gradient-to-r from-slate-900 to-[#003B5C] px-6 py-4 text-white flex flex-col md:flex-row justify-between md:items-center gap-2 print:bg-white print:text-black print:p-0 print:border-b">
+                    <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden">
+                      <div className="bg-gradient-to-r from-slate-900 to-[#003B5C] px-6 py-4 text-white flex flex-col md:flex-row justify-between md:items-center gap-2">
                         <div>
                           <h3 className="text-sm font-black tracking-wider uppercase flex items-center gap-2">
                             <span>📊</span> Analisis Komparasi Kinerja: {prevData.periode} vs {currData.periode}
                           </h3>
-                          <p className="text-xs text-sky-200 print:text-slate-600">
+                          <p className="text-xs text-sky-200">
                             Evaluasi kenaikan / penurunan saldo piutang tunggakan antar-bulan secara otomatis
                           </p>
                         </div>
-                        <div className="flex items-center gap-2 text-xs bg-white/10 px-3 py-1.5 rounded-lg backdrop-blur-xs font-semibold print:hidden">
+                        <div className="flex items-center gap-2 text-xs bg-white/10 px-3 py-1.5 rounded-lg backdrop-blur-xs font-semibold">
                           <span>{(prevData.periode || "").split(" ")[0]}</span>
                           <ArrowRight className="w-3.5 h-3.5" />
                           <span className="text-[#FFD100]">{(currData.periode || "").split(" ")[0]}</span>
                         </div>
                       </div>
 
-                      <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-4 border-b border-slate-100 bg-slate-50/50 print:bg-white print:p-2">
-                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+                      <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4 border-b border-slate-100 bg-slate-50/50">
+                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
                           <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                             Selisih Total Saldo (Dengan KCIC)
                           </span>
@@ -846,7 +1043,7 @@ export default function DashboardPage() {
                           </div>
                         </div>
 
-                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
                           <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                             Selisih Saldo Reguler (Tanpa KCIC)
                           </span>
@@ -868,7 +1065,7 @@ export default function DashboardPage() {
                           </div>
                         </div>
 
-                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
+                        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
                           <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                             Perubahan Jumlah Pelanggan
                           </span>
@@ -883,73 +1080,17 @@ export default function DashboardPage() {
                         </div>
                       </div>
 
-                      <div className="p-6 space-y-4 print:p-2">
-                        <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                          <div className="flex items-center gap-2">
-                            <div className="w-2 h-4 bg-[#005C8A] rounded-full"></div>
-                            <h4 className="text-xs font-extrabold text-slate-800 uppercase tracking-wider">
-                              Executive Evaluation & Actionable Insight ({(prevData.periode || "").split(" ")[0]} vs {(currData.periode || "").split(" ")[0]})
-                            </h4>
-                          </div>
-                          <span className="text-[11px] font-semibold text-slate-400">
-                            Unit Pelaksana Pelayanan Pelanggan (UP3) Jatinegara
-                          </span>
-                        </div>
-
-                        {diffTotalRp > 0 ? (
-                          <div className="bg-rose-50/80 border border-rose-200 rounded-xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-                            <div className="flex items-start gap-3">
-                              <div className="p-2 bg-rose-100 text-rose-700 rounded-lg shrink-0 mt-0.5">
-                                <AlertCircle className="w-5 h-5" />
-                              </div>
-                              <div>
-                                <h5 className="text-xs font-black text-rose-950 uppercase tracking-wide">
-                                  Peringatan: Kenaikan Saldo Tunggakan Rekening
-                                </h5>
-                                <p className="text-xs text-rose-800 mt-0.5 leading-relaxed">
-                                  Saldo akhir pada periode <b>{currData.periode}</b> meningkat sebesar{" "}
-                                  <b>Rp {diffTotalRp.toLocaleString("id-ID")}</b> (+{pctTotalRp.toFixed(1)}%) dibanding {prevData.periode}.
-                                </p>
-                              </div>
-                            </div>
-                            <div className="bg-white px-3 py-1.5 rounded-lg border border-rose-200 text-right shrink-0">
-                              <span className="text-[10px] uppercase font-bold text-rose-500 block">Deviasi Saldo</span>
-                              <span className="text-sm font-black text-rose-700">+{pctTotalRp.toFixed(1)}% MoM</span>
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="bg-emerald-50/80 border border-emerald-200 rounded-xl p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-                            <div className="flex items-start gap-3">
-                              <div className="p-2 bg-emerald-100 text-emerald-700 rounded-lg shrink-0 mt-0.5">
-                                <CheckCircle2 className="w-5 h-5" />
-                              </div>
-                              <div>
-                                <h5 className="text-xs font-black text-emerald-950 uppercase tracking-wide">
-                                  Kinerja Positif: Penurunan Saldo Tunggakan Efektif
-                                </h5>
-                                <p className="text-xs text-emerald-800 mt-0.5 leading-relaxed">
-                                  Realisasi saldo akhir berhasil ditekan sebesar{" "}
-                                  <b>Rp {Math.abs(diffTotalRp).toLocaleString("id-ID")}</b> ({pctTotalRp.toFixed(1)}%) dibanding {prevData.periode}.
-                                </p>
-                              </div>
-                            </div>
-                            <div className="bg-white px-3 py-1.5 rounded-lg border border-emerald-200 text-right shrink-0">
-                              <span className="text-[10px] uppercase font-bold text-emerald-500 block">Efisiensi Saldo</span>
-                              <span className="text-sm font-black text-emerald-700">{pctTotalRp.toFixed(1)}% MoM</span>
-                            </div>
-                          </div>
-                        )}
-
+                      <div className="p-5 space-y-4">
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                           <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-1.5">
                             <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                              <span>🚆</span> Pengaruh Portofolio KCIC
+                              <span>🚆</span> Portofolio KCIC (5 IDPEL)
                             </span>
                             <div className="text-xs text-slate-800 leading-relaxed">
                               {diffKcicRp > 0 ? (
                                 <>
                                   Saldo KCIC bertambah <b>Rp {diffKcicRp.toLocaleString("id-ID")}</b>. Kenaikan ini menyumbang{" "}
-                                  <b>{kcicContributionPct}%</b> dari seluruh lonjakan tunggakan unit.
+                                  <b>{kcicContributionPct}%</b> dari kenaikan tunggakan unit.
                                 </>
                               ) : diffKcicRp < 0 ? (
                                 <>
@@ -957,7 +1098,7 @@ export default function DashboardPage() {
                                   <b>Rp {Math.abs(diffKcicRp).toLocaleString("id-ID")}</b>.
                                 </>
                               ) : (
-                                "Saldo tunggakan segmen KCIC terpantau stagnan tanpa mutasi nominal."
+                                "Saldo tunggakan 5 IDPEL KCIC terpantau stagnan tanpa mutasi nominal."
                               )}
                             </div>
                           </div>
@@ -969,7 +1110,7 @@ export default function DashboardPage() {
                             <div className="text-xs text-slate-800 leading-relaxed">
                               {diffTanpaKcicRp > 0 ? (
                                 <>
-                                  Tunggakan pelanggan reguler mengalami kenaikan sebesar{" "}
+                                  Tunggakan reguler mengalami kenaikan sebesar{" "}
                                   <b className="text-rose-600">Rp {diffTanpaKcicRp.toLocaleString("id-ID")}</b> (+{pctTanpaKcicRp.toFixed(1)}%).
                                 </>
                               ) : (
@@ -987,7 +1128,7 @@ export default function DashboardPage() {
                             </span>
                             <div className="text-xs text-slate-700 leading-relaxed">
                               {diffTotalRp > 0
-                                ? "Prioritaskan rekonsiliasi faktur tagihan KCIC terpusat serta lakukan penertiban surat pemutusan sementara untuk IDPEL AMR reguler berpiutang tinggi."
+                                ? "Prioritaskan rekonsiliasi faktur 5 IDPEL KCIC terpusat serta lakukan penertiban pemutusan sementara untuk IDPEL reguler berpiutang tinggi."
                                 : "Pertahankan ritme penagihan harian siklus awal dan monitor pengawasan pembongkaran rampung pelanggan KOGOL yang belum melunasi."}
                             </div>
                           </div>
@@ -995,129 +1136,146 @@ export default function DashboardPage() {
                       </div>
                     </div>
                   )}
-                </>
-              ) : null}
 
-              {/* TABEL PELANGGAN */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden print:border-none">
-                <div className="bg-slate-900 px-6 py-4 text-white flex flex-col lg:flex-row justify-between lg:items-center gap-4 print:bg-white print:text-black print:p-0 print:border-b">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <div className="p-1.5 rounded-lg bg-amber-500/20 text-amber-400 print:hidden">
-                        <Users className="w-4 h-4" />
+                  {/* BENTO GRID ROW 5: VISUALISASI GRAFIK MULTI-BULAN & KOMPOSISI */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 print:hidden">
+                    <div className="lg:col-span-7 bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs">
+                      <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-2.5">
+                        <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                          <BarChart3 className="w-4 h-4 text-[#005C8A]" />
+                          Trend Realisasi Multi-Bulan (Dengan vs Tanpa KCIC)
+                        </h3>
                       </div>
-                      <h3 className="text-sm font-black tracking-wider uppercase">
-                        {activeTab === "LEMBAR_KERJA"
-                          ? `Lembar Penugasan Lapangan — ${activeData.periode}`
-                          : `Pemetaan Rute Baca Meter (RBM) & Penagihan — ${activeData.periode}`}
-                      </h3>
+                      <div className="h-56">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={barChartData}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
+                            <XAxis dataKey="bulan" stroke="#94A3B8" fontSize={11} />
+                            <YAxis tickFormatter={(val) => `${(val / 1e9).toFixed(1)}M`} stroke="#94A3B8" fontSize={11} />
+                            <Tooltip formatter={(val: any) => `Rp ${Number(val).toLocaleString("id-ID")}`} />
+                            <Bar dataKey="Dengan_KCIC" fill="#005C8A" radius={[4, 4, 0, 0]} name="Dengan KCIC" maxBarSize={36} />
+                            <Bar dataKey="Tanpa_KCIC" fill="#F59E0B" radius={[4, 4, 0, 0]} name="Tanpa KCIC" maxBarSize={36} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
                     </div>
-                    <p className="text-xs text-slate-400 mt-0.5 print:text-slate-600">
-                      Seleksi penugasan penagihan per regu kerja (kode 3 huruf) dan per kode petugas (2 huruf).
+
+                    <div className="lg:col-span-5 grid grid-cols-2 gap-4">
+                      <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-2xs flex flex-col justify-between">
+                        <span className="text-[11px] font-bold text-slate-700 uppercase block border-b border-slate-100 pb-2">
+                          % Pelanggan AMR
+                        </span>
+                        <div className="h-44">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie data={donutPelanggan} dataKey="value" innerRadius={42} outerRadius={62} paddingAngle={3}>
+                                {donutPelanggan.map((entry, idx) => (
+                                  <Cell key={`cell-${idx}`} fill={entry.color} />
+                                ))}
+                              </Pie>
+                              <Tooltip />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+
+                      <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-2xs flex flex-col justify-between">
+                        <span className="text-[11px] font-bold text-slate-700 uppercase block border-b border-slate-100 pb-2">
+                          % Rupiah AMR
+                        </span>
+                        <div className="h-44">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie data={donutRupiah} dataKey="value" innerRadius={42} outerRadius={62} paddingAngle={3}>
+                                {donutRupiah.map((entry, idx) => (
+                                  <Cell key={`cell-rp-${idx}`} fill={entry.color} />
+                                ))}
+                              </Pie>
+                              <Tooltip formatter={(val: any) => `Rp ${Number(val).toLocaleString("id-ID")}`} />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* BENTO GRID ROW 6: TABEL RINCIAN PELANGGAN & LEMBAR KERJA */}
+              <div className="bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden print:border-none">
+                <div className="px-5 py-4 border-b border-slate-100 flex flex-col lg:flex-row justify-between lg:items-center gap-4 bg-slate-50/50 print:bg-white print:p-0 print:border-b">
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-2">
+                      <Users className="w-4 h-4 text-[#005C8A]" />
+                      {activeTab === "LEMBAR_KERJA"
+                        ? `Lembar Penugasan Lapangan — ${activeData.periode}`
+                        : `Daftar Tunggakan Pelanggan & Alokasi RBM — ${activeData.periode}`}
+                    </h3>
+                    <p className="text-[11px] text-slate-400 mt-0.5 print:text-slate-600">
+                      Format RBM: HAAMRTI... ➔ Regu: <b>MR</b>, Kode Anggota: <b>MRT</b> (Digit ke-6: <b>T</b>)
                     </p>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2.5 print:hidden">
-                    {/* Dropdown Regu */}
-                    <div className="flex items-center gap-1.5 bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-700">
-                      <span className="text-[10px] uppercase font-bold text-slate-400">Regu:</span>
-                      <select
-                        value={filterRegu}
-                        onChange={(e) => {
-                          setFilterRegu(e.target.value);
-                          setFilterPetugas("SEMUA");
-                        }}
-                        className="bg-transparent text-xs text-white focus:outline-none font-bold"
-                      >
-                        <option value="SEMUA" className="bg-slate-800 text-white">Semua Regu</option>
-                        {activeData.daftarRegu && activeData.daftarRegu.length > 0 ? (
-                          activeData.daftarRegu.map((rg) => (
-                            <option key={rg} value={rg} className="bg-slate-800 text-white">
-                              Regu {rg}
-                            </option>
-                          ))
-                        ) : null}
-                      </select>
-                    </div>
+                  <div className="flex flex-wrap items-center gap-2 print:hidden">
+                    <select
+                      value={filterRegu}
+                      onChange={(e) => {
+                        setFilterRegu(e.target.value);
+                        setFilterPetugas("SEMUA");
+                      }}
+                      className="text-xs font-semibold bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-[#005C8A]"
+                    >
+                      <option value="SEMUA">Semua Regu</option>
+                      {activeData.daftarRegu.map((rg) => (
+                        <option key={rg} value={rg}>Regu {rg}</option>
+                      ))}
+                    </select>
 
-                    {/* Dropdown Petugas */}
-                    <div className="flex items-center gap-1.5 bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-700">
-                      <UserCheck className="w-3.5 h-3.5 text-sky-400" />
-                      <span className="text-[10px] uppercase font-bold text-slate-400">Petugas:</span>
-                      <select
-                        value={filterPetugas}
-                        onChange={(e) => setFilterPetugas(e.target.value)}
-                        className="bg-transparent text-xs text-white focus:outline-none font-bold"
-                      >
-                        <option value="SEMUA" className="bg-slate-800 text-white">Semua Petugas</option>
-                        {opsiPetugas && opsiPetugas.length > 0 ? (
-                          opsiPetugas.map((ptg) => (
-                            <option key={ptg.idPetugas} value={ptg.idPetugas} className="bg-slate-800 text-white">
-                              Kode {ptg.idPetugas} (Regu {ptg.regu})
-                            </option>
-                          ))
-                        ) : null}
-                      </select>
-                    </div>
+                    <select
+                      value={filterPetugas}
+                      onChange={(e) => setFilterPetugas(e.target.value)}
+                      className="text-xs font-semibold bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-[#005C8A]"
+                    >
+                      <option value="SEMUA">Semua Petugas</option>
+                      {opsiPetugas.map((ptg: any) => {
+                        const val = ptg.kodeAnggota || ptg.idPetugas || "";
+                        return (
+                          <option key={val} value={val}>
+                            {val} (Regu {ptg.regu})
+                          </option>
+                        );
+                      })}
+                    </select>
 
-                    {/* Filter Kategori */}
                     <select
                       value={filterKategori}
                       onChange={(e) => setFilterKategori(e.target.value)}
-                      className="bg-slate-800 border border-slate-700 text-xs text-slate-200 px-2.5 py-1.5 rounded-lg focus:outline-none focus:border-sky-400"
+                      className="text-xs font-semibold bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-[#005C8A]"
                     >
-                      <option value="SEMUA">Semua Kategori</option>
-                      <option value="KCIC">Khusus KCIC</option>
-                      <option value="AMR">AMR Reguler</option>
+                      <option value="SEMUA">Semua Segmen</option>
+                      <option value="KCIC">Khusus 5 IDPEL KCIC</option>
+                      <option value="AMR">AMR</option>
                       <option value="NON-AMR">Non-AMR</option>
                     </select>
 
-                    {/* Input Pencarian */}
                     <div className="relative">
-                      <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
+                      <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
                       <input
                         type="text"
                         placeholder="Cari IDPEL / Nama / RBM..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="pl-8 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-400 focus:outline-none focus:border-sky-400 w-44"
+                        className="pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs placeholder-slate-400 focus:outline-none focus:border-[#005C8A] w-48 font-medium"
                       />
                     </div>
                   </div>
                 </div>
 
-                <div className="bg-sky-50/70 border-b border-sky-100 px-6 py-2.5 flex flex-wrap justify-between items-center text-xs text-slate-700">
-                  <div className="flex items-center gap-4">
-                    <span>
-                      Ditemukan: <b>{rekapTerfilter.totalPlgn} Pelanggan</b>
-                    </span>
-                    <span className="text-slate-300">•</span>
-                    <span>
-                      Beban Tunggakan: <b className="text-[#005C8A]">Rp {rekapTerfilter.totalRp.toLocaleString("id-ID")}</b>
-                    </span>
-                    <span className="text-slate-300">•</span>
-                    <span className="text-[11px] text-slate-500">
-                      Urutan: <b>{kolomSortir} ({arahSortir})</b>
-                    </span>
-                  </div>
-                  {(filterRegu !== "SEMUA" || filterPetugas !== "SEMUA") && (
-                    <button
-                      onClick={() => {
-                        setFilterRegu("SEMUA");
-                        setFilterPetugas("SEMUA");
-                      }}
-                      className="text-rose-600 hover:text-rose-700 font-bold text-[11px] underline print:hidden"
-                    >
-                      Reset Filter Regu/Petugas
-                    </button>
-                  )}
-                </div>
-
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs text-left">
-                    <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 print:bg-slate-100 select-none">
+                    <thead className="bg-slate-50/80 text-slate-600 font-bold border-b border-slate-100 select-none print:bg-slate-100">
                       <tr>
-                        <th className="py-2.5 px-3 w-10 text-center print:hidden">Bayar</th>
+                        <th className="py-2.5 px-3 w-8 text-center print:hidden">Bayar</th>
                         <th className="py-2.5 px-3 w-10 text-center">No</th>
                         <th className="py-2.5 px-4">ID Pelanggan</th>
                         <th
@@ -1131,42 +1289,34 @@ export default function DashboardPage() {
                         </th>
                         <th className="py-2.5 px-3">Tarif / Daya</th>
                         <th className="py-2.5 px-3 font-mono">No. RBM</th>
-                        
                         <th
-                          className="py-2.5 px-2 text-center bg-sky-50/80 cursor-pointer hover:bg-sky-100 text-[#005C8A]"
+                          className="py-2.5 px-2 text-center cursor-pointer hover:text-[#005C8A]"
                           onClick={() => handleToggleSort("REGU")}
-                          title="Klik untuk sortir per Regu"
                         >
                           <div className="flex items-center justify-center gap-1">
                             <span>Regu</span>
-                            <ArrowUpDown className="w-3 h-3 text-sky-600" />
+                            <ArrowUpDown className="w-3 h-3 text-slate-400" />
                           </div>
                         </th>
-
                         <th
-                          className="py-2.5 px-2 text-center bg-indigo-50/80 cursor-pointer hover:bg-indigo-100 text-indigo-700"
+                          className="py-2.5 px-2 text-center cursor-pointer hover:text-[#005C8A]"
                           onClick={() => handleToggleSort("PETUGAS")}
-                          title="Klik untuk sortir per ID Petugas"
                         >
                           <div className="flex items-center justify-center gap-1">
                             <span>Petugas</span>
-                            <ArrowUpDown className="w-3 h-3 text-indigo-600" />
+                            <ArrowUpDown className="w-3 h-3 text-slate-400" />
                           </div>
                         </th>
-
                         <th className="py-2.5 px-3 text-center">Segmen</th>
-                        
                         <th
                           className="py-2.5 px-4 text-right cursor-pointer hover:text-[#005C8A]"
                           onClick={() => handleToggleSort("NOMINAL")}
-                          title="Klik untuk sortir nominal tunggakan"
                         >
                           <div className="flex items-center justify-end gap-1">
                             <span>Rupiah Tunggakan</span>
                             <ArrowUpDown className="w-3 h-3 text-slate-400" />
                           </div>
                         </th>
-
                         {activeTab === "LEMBAR_KERJA" && (
                           <>
                             <th className="py-2.5 px-4 text-center w-28">Status Lapangan</th>
@@ -1175,7 +1325,7 @@ export default function DashboardPage() {
                         )}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100 text-slate-700 print:divide-slate-300">
+                    <tbody className="divide-y divide-slate-100 text-slate-700">
                       {filteredPelanggan.length > 0 ? (
                         filteredPelanggan.slice(0, activeTab === "RINGKASAN" ? 25 : 120).map((item, idx) => {
                           const isLunas = !!simulasiLunas[item.idpel];
@@ -1183,57 +1333,45 @@ export default function DashboardPage() {
                             <tr
                               key={item.idpel}
                               className={`transition ${
-                                isLunas ? "bg-emerald-50/70 line-through text-slate-400" : "hover:bg-slate-50"
+                                isLunas ? "bg-emerald-50/50 line-through text-slate-400" : "hover:bg-slate-50/70"
                               }`}
                             >
                               <td className="py-2 px-3 text-center print:hidden">
                                 <button
-                                  onClick={() => togglePelunasan(item.idpel)}
+                                  onClick={() => {
+                                    setSimulasiLunas((prev) => ({ ...prev, [item.idpel]: !prev[item.idpel] }));
+                                  }}
                                   className="text-slate-400 hover:text-emerald-600 transition"
-                                  title="Tandai Sudah Bayar / Simulasi"
                                 >
-                                  {isLunas ? (
-                                    <CheckSquare className="w-4 h-4 text-emerald-600" />
-                                  ) : (
-                                    <Square className="w-4 h-4" />
-                                  )}
+                                  {isLunas ? <CheckSquare className="w-4 h-4 text-emerald-600" /> : <Square className="w-4 h-4" />}
                                 </button>
                               </td>
-                              <td className="py-2 px-3 text-center font-bold text-slate-400">{idx + 1}</td>
-                              <td className="py-2 px-4 font-mono font-semibold text-slate-900">{item.idpel}</td>
-                              <td className="py-2 px-4 font-bold text-slate-800">{item.nama}</td>
+                              <td className="py-2 px-3 text-center font-semibold text-slate-400">{idx + 1}</td>
+                              <td className="py-2 px-4 font-mono font-bold text-slate-900">{item.idpel}</td>
+                              <td className="py-2 px-4 font-semibold text-slate-800">{item.nama}</td>
                               <td className="py-2 px-3 text-slate-600">{item.tarifDaya}</td>
-                              <td className="py-2 px-3 font-mono text-slate-600 font-bold">{item.rbm}</td>
-                              
-                              <td className="py-2 px-2 text-center font-bold text-[#005C8A] bg-sky-50/50">
-                                {item.regu !== "-" ? (
-                                  <span className="px-2 py-0.5 rounded bg-sky-100 font-mono text-[11px]">
-                                    {item.regu}
-                                  </span>
-                                ) : "-"}
+                              <td className="py-2 px-3 font-mono text-slate-600">{item.rbm}</td>
+                              <td className="py-2 px-2 text-center font-bold text-[#005C8A]">
+                                <span className="px-1.5 py-0.5 bg-sky-50 rounded border border-sky-100 font-mono">
+                                  {item.regu}
+                                </span>
                               </td>
-
-                              <td className="py-2 px-2 text-center font-bold text-indigo-700 bg-indigo-50/50">
-                                {item.idPetugas !== "-" ? (
-                                  <span className="px-2 py-0.5 rounded bg-indigo-100 font-mono text-[11px]">
-                                    {item.idPetugas}
-                                  </span>
-                                ) : "-"}
+                              <td className="py-2 px-2 text-center font-mono font-semibold text-slate-700">
+                                {(item as any).kodeAnggota || item.idPetugas}
                               </td>
-
                               <td className="py-2 px-3 text-center">
                                 {item.kategori === "KCIC" && (
-                                  <span className="px-2 py-0.5 text-[10px] font-extrabold rounded bg-rose-100 text-rose-700 border border-rose-200">
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200">
                                     KCIC
                                   </span>
                                 )}
                                 {item.kategori === "AMR" && (
-                                  <span className="px-2 py-0.5 text-[10px] font-extrabold rounded bg-sky-100 text-[#005C8A] border border-sky-200">
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-sky-50 text-[#005C8A] border border-sky-200">
                                     AMR
                                   </span>
                                 )}
                                 {item.kategori === "NON-AMR" && (
-                                  <span className="px-2 py-0.5 text-[10px] font-extrabold rounded bg-amber-100 text-amber-800 border border-amber-200">
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">
                                     NON-AMR
                                   </span>
                                 )}
@@ -1241,7 +1379,6 @@ export default function DashboardPage() {
                               <td className="py-2 px-4 text-right font-black text-slate-900">
                                 Rp {(item.rpTunggakan || 0).toLocaleString("id-ID")}
                               </td>
-
                               {activeTab === "LEMBAR_KERJA" && (
                                 <>
                                   <td className="py-2 px-4 text-center border-l border-slate-200 text-[10px] text-slate-500">
@@ -1258,7 +1395,7 @@ export default function DashboardPage() {
                       ) : (
                         <tr>
                           <td colSpan={activeTab === "LEMBAR_KERJA" ? 12 : 10} className="py-8 text-center text-slate-400">
-                            Tidak ditemukan data pelanggan yang sesuai dengan seleksi Regu / Petugas / Kata Kunci pencarian.
+                            Tidak ditemukan data pelanggan sesuai kriteria pencarian.
                           </td>
                         </tr>
                       )}
@@ -1266,35 +1403,35 @@ export default function DashboardPage() {
                   </table>
                 </div>
 
-                {/* Lembar Tanda Tangan */}
+                {/* LEMBAR PENGESAHAN TANDA TANGAN (PRINT PDF) */}
                 <div className="hidden print:grid grid-cols-3 gap-6 p-6 mt-8 text-center text-xs text-slate-900 border-t-2 border-slate-800">
                   <div>
                     <p className="font-semibold text-slate-600">Disusun oleh,</p>
                     <p className="font-bold text-slate-900 mt-1">Team Leader Pengelolaan Piutang</p>
-                    <div className="h-20"></div>
+                    <div className="h-20" />
                     <p className="font-bold underline text-slate-900">( ............................................ )</p>
                     <p className="text-[10px] text-slate-500 mt-0.5">NIP: .......................................</p>
                   </div>
                   <div>
                     <p className="font-semibold text-slate-600">Diperiksa oleh,</p>
                     <p className="font-bold text-slate-900 mt-1">Asisten Manajer Transaksi Energi</p>
-                    <div className="h-20"></div>
+                    <div className="h-20" />
                     <p className="font-bold underline text-slate-900">( ............................................ )</p>
                     <p className="text-[10px] text-slate-500 mt-0.5">NIP: .......................................</p>
                   </div>
                   <div>
                     <p className="font-semibold text-slate-600">Disetujui oleh,</p>
                     <p className="font-bold text-slate-900 mt-1">Manager UP3 Jatinegara</p>
-                    <div className="h-20"></div>
+                    <div className="h-20" />
                     <p className="font-bold underline text-slate-900">( ............................................ )</p>
                     <p className="text-[10px] text-slate-500 mt-0.5">NIP: .......................................</p>
                   </div>
                 </div>
               </div>
             </>
-          )}
-        </>
-      )}
+          )
+        )}
+      </div>
     </main>
   );
 }
