@@ -205,22 +205,22 @@ export default function DashboardPage() {
     ? ((diffKcicRp / diffTotalRp) * 100).toFixed(1)
     : "0.0";
 
-  // Opsi Dropdown Petugas Menyesuaikan Regu
+  // Dropdown Petugas Menyesuaikan Regu yang Dipilih
   const opsiPetugas = useMemo(() => {
     if (!activeData?.daftarPetugas) return [];
     if (filterRegu === "SEMUA") return activeData.daftarPetugas;
     return activeData.daftarPetugas.filter((p) => p.regu === filterRegu);
   }, [activeData, filterRegu]);
 
-  // Logika Filter & Pengurutan (Sorting)
+  // Filter & Sorting
   const filteredPelanggan = useMemo(() => {
     if (!activeData || !activeData.semuaPelanggan) return [];
 
     let hasil = activeData.semuaPelanggan.filter((p) => {
       const matchText =
-        p.idpel.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.nama.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        p.rbm.toLowerCase().includes(searchQuery.toLowerCase());
+        (p.idpel || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (p.nama || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (p.rbm || "").toLowerCase().includes(searchQuery.toLowerCase());
 
       const matchKategori = filterKategori === "SEMUA" || p.kategori === filterKategori;
       const matchRegu = filterRegu === "SEMUA" || p.regu === filterRegu;
@@ -229,17 +229,16 @@ export default function DashboardPage() {
       return matchText && matchKategori && matchRegu && matchPetugas;
     });
 
-    // Urutkan data berdasarkan kolom yang dipilih
     hasil.sort((a, b) => {
-      let multiplier = arahSortir === "ASC" ? 1 : -1;
+      const multiplier = arahSortir === "ASC" ? 1 : -1;
       if (kolomSortir === "NOMINAL") {
-        return (a.rpTunggakan - b.rpTunggakan) * multiplier;
+        return ((a.rpTunggakan || 0) - (b.rpTunggakan || 0)) * multiplier;
       } else if (kolomSortir === "REGU") {
-        return a.regu.localeCompare(b.regu) * multiplier;
+        return String(a.regu || "-").localeCompare(String(b.regu || "-")) * multiplier;
       } else if (kolomSortir === "PETUGAS") {
-        return a.idPetugas.localeCompare(b.idPetugas) * multiplier;
+        return String(a.idPetugas || "-").localeCompare(String(b.idPetugas || "-")) * multiplier;
       } else {
-        return a.nama.localeCompare(b.nama) * multiplier;
+        return String(a.nama || "").localeCompare(String(b.nama || "")) * multiplier;
       }
     });
 
@@ -256,7 +255,7 @@ export default function DashboardPage() {
   };
 
   const rekapTerfilter = useMemo(() => {
-    const totalRp = filteredPelanggan.reduce((acc, p) => acc + p.rpTunggakan, 0);
+    const totalRp = filteredPelanggan.reduce((acc, p) => acc + (p.rpTunggakan || 0), 0);
     const totalPlgn = filteredPelanggan.length;
     return { totalRp, totalPlgn };
   }, [filteredPelanggan]);
@@ -337,7 +336,7 @@ export default function DashboardPage() {
       ["TOP 10 PELANGGAN SALDO TUNGGAKAN TERBESAR (PARETO 80/20)"],
       [`PERIODE: ${activeData.periode.toUpperCase()}`],
       [],
-      ["No", "ID Pelanggan", "Nama Pelanggan", "Tarif / Daya", "No RBM", "Regu (D45)", "Petugas (D456)", "Segmen", "Nominal Tunggakan (Rp)", "Kontribusi (%)"],
+      ["No", "ID Pelanggan", "Nama Pelanggan", "Tarif / Daya", "No RBM", "Regu", "Petugas", "Segmen", "Nominal Tunggakan (Rp)", "Kontribusi (%)"],
     ];
 
     const top10List = (activeData.semuaPelanggan || []).slice(0, 10);
@@ -358,7 +357,7 @@ export default function DashboardPage() {
     });
 
     const ws2 = XLSX.utils.aoa_to_sheet(top10Data);
-    ws2["!cols"] = [{ wch: 6 }, { wch: 18 }, { wch: 35 }, { wch: 16 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 24 }, { wch: 15 }];
+    ws2["!cols"] = [{ wch: 6 }, { wch: 18 }, { wch: 35 }, { wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 24 }, { wch: 15 }];
     XLSX.utils.book_append_sheet(wb, ws2, "Top 10 Prioritas");
 
     const semuaData: any[][] = [
@@ -366,7 +365,7 @@ export default function DashboardPage() {
       [`PERIODE: ${activeData.periode.toUpperCase()}`],
       [`FILTER AKTIF: Regu [${filterRegu}] | Petugas [${filterPetugas}] | Kategori [${filterKategori}]`],
       [],
-      ["No", "ID Pelanggan", "Nama Pelanggan", "Tarif / Daya", "Nomor RBM", "Regu (D45)", "ID Petugas (D456)", "Segmen", "Golongan", "Nominal Tunggakan (Rp)", "Status Lapangan", "Catatan Petugas"],
+      ["No", "ID Pelanggan", "Nama Pelanggan", "Tarif / Daya", "Nomor RBM", "Regu", "Petugas", "Segmen", "Golongan", "Nominal Tunggakan (Rp)", "Status Lapangan", "Catatan Petugas"],
     ];
 
     filteredPelanggan.forEach((p, idx) => {
@@ -387,7 +386,7 @@ export default function DashboardPage() {
     });
 
     const ws3 = XLSX.utils.aoa_to_sheet(semuaData);
-    ws3["!cols"] = [{ wch: 6 }, { wch: 18 }, { wch: 35 }, { wch: 16 }, { wch: 15 }, { wch: 12 }, { wch: 16 }, { wch: 12 }, { wch: 10 }, { wch: 24 }, { wch: 18 }, { wch: 25 }];
+    ws3["!cols"] = [{ wch: 6 }, { wch: 18 }, { wch: 35 }, { wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 10 }, { wch: 24 }, { wch: 18 }, { wch: 25 }];
     XLSX.utils.book_append_sheet(wb, ws3, "Data Lengkap Pelanggan");
 
     XLSX.writeFile(
@@ -619,7 +618,7 @@ export default function DashboardPage() {
             <>
               {activeTab === "RINGKASAN" ? (
                 <>
-                  {/* Simulasi Dampak Saldo (What-If Filter) */}
+                  {/* Simulasi Dampak Saldo */}
                   <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3 print:hidden">
                     <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
                       <div className="flex items-center gap-2 text-xs">
@@ -999,9 +998,7 @@ export default function DashboardPage() {
                 </>
               ) : null}
 
-              {/* ============================================================== */}
-              {/* TABEL PELANGGAN DENGAN FITUR SORTIR & FILTER REGU/PETUGAS */}
-              {/* ============================================================== */}
+              {/* TABEL PELANGGAN */}
               <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden print:border-none">
                 <div className="bg-slate-900 px-6 py-4 text-white flex flex-col lg:flex-row justify-between lg:items-center gap-4 print:bg-white print:text-black print:p-0 print:border-b">
                   <div>
@@ -1016,13 +1013,12 @@ export default function DashboardPage() {
                       </h3>
                     </div>
                     <p className="text-xs text-slate-400 mt-0.5 print:text-slate-600">
-                      Seleksi penugasan penagihan per regu kerja (digit 45 RBM) dan per ID petugas billman (digit 456 RBM).
+                      Seleksi penugasan penagihan per regu kerja (kode 3 huruf) dan per kode petugas (2 huruf).
                     </p>
                   </div>
 
-                  {/* Toolbar Filter Cerdas RBM */}
                   <div className="flex flex-wrap items-center gap-2.5 print:hidden">
-                    {/* Filter Regu (Digit 4-5) */}
+                    {/* Dropdown Regu */}
                     <div className="flex items-center gap-1.5 bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-700">
                       <span className="text-[10px] uppercase font-bold text-slate-400">Regu:</span>
                       <select
@@ -1044,7 +1040,7 @@ export default function DashboardPage() {
                       </select>
                     </div>
 
-                    {/* Filter Petugas (Digit 4-5-6) */}
+                    {/* Dropdown Petugas */}
                     <div className="flex items-center gap-1.5 bg-slate-800 px-2.5 py-1 rounded-lg border border-slate-700">
                       <UserCheck className="w-3.5 h-3.5 text-sky-400" />
                       <span className="text-[10px] uppercase font-bold text-slate-400">Petugas:</span>
@@ -1057,7 +1053,7 @@ export default function DashboardPage() {
                         {opsiPetugas && opsiPetugas.length > 0 ? (
                           opsiPetugas.map((ptg) => (
                             <option key={ptg.idPetugas} value={ptg.idPetugas} className="bg-slate-800 text-white">
-                              ID {ptg.idPetugas} (Regu {ptg.regu})
+                              Kode {ptg.idPetugas} (Regu {ptg.regu})
                             </option>
                           ))
                         ) : null}
@@ -1076,7 +1072,7 @@ export default function DashboardPage() {
                       <option value="NON-AMR">Non-AMR</option>
                     </select>
 
-                    {/* Search Input */}
+                    {/* Input Pencarian */}
                     <div className="relative">
                       <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
                       <input
@@ -1090,7 +1086,6 @@ export default function DashboardPage() {
                   </div>
                 </div>
 
-                {/* Sub-Header Hasil Filter */}
                 <div className="bg-sky-50/70 border-b border-sky-100 px-6 py-2.5 flex flex-wrap justify-between items-center text-xs text-slate-700">
                   <div className="flex items-center gap-4">
                     <span>
@@ -1137,7 +1132,6 @@ export default function DashboardPage() {
                         <th className="py-2.5 px-3">Tarif / Daya</th>
                         <th className="py-2.5 px-3 font-mono">No. RBM</th>
                         
-                        {/* Judul Kolom yang Bisa Diklik untuk Sortir Regu */}
                         <th
                           className="py-2.5 px-2 text-center bg-sky-50/80 cursor-pointer hover:bg-sky-100 text-[#005C8A]"
                           onClick={() => handleToggleSort("REGU")}
@@ -1149,7 +1143,6 @@ export default function DashboardPage() {
                           </div>
                         </th>
 
-                        {/* Judul Kolom yang Bisa Diklik untuk Sortir Petugas */}
                         <th
                           className="py-2.5 px-2 text-center bg-indigo-50/80 cursor-pointer hover:bg-indigo-100 text-indigo-700"
                           onClick={() => handleToggleSort("PETUGAS")}
@@ -1163,7 +1156,6 @@ export default function DashboardPage() {
 
                         <th className="py-2.5 px-3 text-center">Segmen</th>
                         
-                        {/* Judul Kolom yang Bisa Diklik untuk Sortir Nominal */}
                         <th
                           className="py-2.5 px-4 text-right cursor-pointer hover:text-[#005C8A]"
                           onClick={() => handleToggleSort("NOMINAL")}
@@ -1211,11 +1203,11 @@ export default function DashboardPage() {
                               <td className="py-2 px-4 font-mono font-semibold text-slate-900">{item.idpel}</td>
                               <td className="py-2 px-4 font-bold text-slate-800">{item.nama}</td>
                               <td className="py-2 px-3 text-slate-600">{item.tarifDaya}</td>
-                              <td className="py-2 px-3 font-mono text-slate-600">{item.rbm}</td>
+                              <td className="py-2 px-3 font-mono text-slate-600 font-bold">{item.rbm}</td>
                               
                               <td className="py-2 px-2 text-center font-bold text-[#005C8A] bg-sky-50/50">
                                 {item.regu !== "-" ? (
-                                  <span className="px-2 py-0.5 rounded bg-sky-100/80 font-mono text-[11px]">
+                                  <span className="px-2 py-0.5 rounded bg-sky-100 font-mono text-[11px]">
                                     {item.regu}
                                   </span>
                                 ) : "-"}
@@ -1223,7 +1215,7 @@ export default function DashboardPage() {
 
                               <td className="py-2 px-2 text-center font-bold text-indigo-700 bg-indigo-50/50">
                                 {item.idPetugas !== "-" ? (
-                                  <span className="px-2 py-0.5 rounded bg-indigo-100/80 font-mono text-[11px]">
+                                  <span className="px-2 py-0.5 rounded bg-indigo-100 font-mono text-[11px]">
                                     {item.idPetugas}
                                   </span>
                                 ) : "-"}
@@ -1247,7 +1239,7 @@ export default function DashboardPage() {
                                 )}
                               </td>
                               <td className="py-2 px-4 text-right font-black text-slate-900">
-                                Rp {item.rpTunggakan.toLocaleString("id-ID")}
+                                Rp {(item.rpTunggakan || 0).toLocaleString("id-ID")}
                               </td>
 
                               {activeTab === "LEMBAR_KERJA" && (
@@ -1274,7 +1266,7 @@ export default function DashboardPage() {
                   </table>
                 </div>
 
-                {/* Kolom Pengesahan Tiga Pejabat */}
+                {/* Lembar Tanda Tangan */}
                 <div className="hidden print:grid grid-cols-3 gap-6 p-6 mt-8 text-center text-xs text-slate-900 border-t-2 border-slate-800">
                   <div>
                     <p className="font-semibold text-slate-600">Disusun oleh,</p>
