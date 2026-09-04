@@ -30,7 +30,6 @@ import {
   BarChart3,
   Calendar,
 } from "lucide-react";
-import { MetricCard } from "@/components/ui/MetricCard";
 import { parseExcelKogolBuffer, HasilKogol } from "@/lib/parserKogol";
 import { downloadPresentationPptx } from "@/lib/exportPptx";
 import * as XLSX from "xlsx";
@@ -105,39 +104,82 @@ export default function DashboardPage() {
     }
   }, []);
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const buffer = evt.target?.result as ArrayBuffer;
-        const parsed = parseExcelKogolBuffer(buffer, file.name);
-        const key = `${parsed.tahun}-${parsed.kodeBulan}`;
-
-        setDataHistory((prev) => {
-          const updated = { ...prev, [key]: parsed };
-          try {
-            localStorage.setItem("satu_jatinegara_history", JSON.stringify(updated));
-          } catch (storageErr) {
-            console.warn("Storage browser penuh:", storageErr);
+    const readFileBuffer = (file: File): Promise<{ buffer: ArrayBuffer; name: string }> => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          if (evt.target?.result) {
+            resolve({ buffer: evt.target.result as ArrayBuffer, name: file.name });
+          } else {
+            reject(new Error(`Gagal membaca berkas ${file.name}`));
           }
-          return updated;
-        });
-
-        setSelectedKey(key);
-        setSimulasiLunas({});
-        setFilterRegu("SEMUA");
-        setFilterPetugas("SEMUA");
-      } catch (err) {
-        console.error("Gagal memproses file:", err);
-        alert("Gagal membaca struktur Excel. Pastikan berkas adalah laporan resmi KOGOL.");
-      } finally {
-        if (fileInputRef.current) fileInputRef.current.value = "";
-      }
+        };
+        reader.onerror = () => reject(new Error(`Error membaca berkas ${file.name}`));
+        reader.readAsArrayBuffer(file);
+      });
     };
-    reader.readAsArrayBuffer(file);
+
+    try {
+      const fileBuffers = await Promise.all(
+        Array.from(files).map((file) => readFileBuffer(file))
+      );
+
+      const parsedResults: Record<string, HasilKogol> = {};
+      let lastKey = "";
+
+      fileBuffers.forEach(({ buffer, name }) => {
+        try {
+          const parsed = parseExcelKogolBuffer(buffer, name || "file.xlsx");
+          const key = `${parsed.tahun}-${parsed.kodeBulan}`;
+          parsedResults[key] = parsed;
+          lastKey = key;
+        } catch (parseErr) {
+          console.error(`Gagal mengurai berkas ${name}:`, parseErr);
+        }
+      });
+
+      if (Object.keys(parsedResults).length === 0) {
+        alert("Tidak ada berkas Excel KOGOL valid yang berhasil dibaca.");
+        return;
+      }
+
+      setDataHistory((prev) => {
+        const updated = { ...prev, ...parsedResults };
+        try {
+          localStorage.setItem("satu_jatinegara_history", JSON.stringify(updated));
+        } catch (storageErr) {
+          console.warn("Penyimpanan browser penuh:", storageErr);
+        }
+        return updated;
+      });
+
+      if (lastKey) {
+        setSelectedKey(lastKey);
+      }
+      setSimulasiLunas({});
+      setFilterRegu("SEMUA");
+      setFilterPetugas("SEMUA");
+
+      const now = new Date();
+      const formatted = new Intl.DateTimeFormat("id-ID", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      }).format(now);
+      setWaktuSinkronisasi(`${formatted} WIB`);
+    } catch (err) {
+      console.error("Gagal memproses berkas yang dipilih:", err);
+      alert("Gagal membaca struktur berkas Excel.");
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   };
 
   const handleResetData = () => {
@@ -178,7 +220,25 @@ export default function DashboardPage() {
   saldoSimulasi = Math.max(0, saldoSimulasi - totalLunasSimulasi);
   plgnSimulasi = Math.max(0, plgnSimulasi - jumlahPelangganLunasSimulasi);
 
-  const capaianPersenSimulasi = ((2 - (saldoSimulasi / targetSaldo)) * 100).toFixed(1);
+  const capaianPersenSimulasi = useMemo(() => {
+    if (!activeData || sortedKeys.length === 0) return "0.0";
+
+    const currentIdx = sortedKeys.indexOf(selectedKey);
+    const slicedKeys = sortedKeys.slice(0, currentIdx !== -1 ? currentIdx + 1 : sortedKeys.length);
+    const pembagi = Math.max(1, slicedKeys.length);
+
+    let totalKumulatif = 0;
+    slicedKeys.forEach((k) => {
+      if (k === selectedKey) {
+        totalKumulatif += saldoSimulasi;
+      } else {
+        totalKumulatif += dataHistory[k]?.denganKcic?.totalRp || 0;
+      }
+    });
+
+    const rataKumulatif = totalKumulatif / pembagi;
+    return ((2 - (rataKumulatif / targetSaldo)) * 100).toFixed(1);
+  }, [activeData, sortedKeys, selectedKey, saldoSimulasi, dataHistory, targetSaldo]);
 
   const hasComparison = sortedKeys.length >= 2;
   const prevKey = hasComparison ? sortedKeys[sortedKeys.length - 2] : null;
@@ -546,7 +606,7 @@ export default function DashboardPage() {
             {activeData && (
               <>
                 <button
-                  onClick={handlePrint}
+                  onClick={() => window.print()}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg shadow-2xs transition"
                 >
                   <Printer className="w-3.5 h-3.5 text-slate-500" />
@@ -585,6 +645,7 @@ export default function DashboardPage() {
                 ref={fileInputRef}
                 type="file"
                 accept=".xlsx,.xls"
+                multiple
                 className="hidden"
                 onChange={handleFileUpload}
               />
@@ -634,7 +695,7 @@ export default function DashboardPage() {
             </div>
             <h3 className="text-sm font-bold text-slate-800">Menunggu Berkas Excel KOGOL</h3>
             <p className="text-xs text-slate-500 max-w-sm">
-              Klik tombol &quot;Unggah KOGOL&quot; untuk mengaktifkan pemantauan tagihan antar-bulan, ranking per regu, dan lembar kerja penagihan.
+              Klik tombol &quot;Unggah KOGOL&quot; untuk memilih satu atau beberapa berkas sekaligus guna mengaktifkan pemantauan tagihan antar-bulan, ranking per regu, dan lembar kerja penagihan.
             </p>
           </div>
         ) : (
@@ -749,7 +810,6 @@ export default function DashboardPage() {
 
                   {/* BENTO GRID ROW 1: BANNER TARGET POLARITAS NEGATIF & DUAL METRIC CARDS */}
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-                    {/* Banner Target Polaritas Negatif */}
                     <div className="lg:col-span-4 bg-[#003B5C] rounded-2xl p-5 text-white shadow-xs border border-sky-950 flex flex-col justify-between">
                       <div>
                         <div className="flex items-center justify-between">
@@ -772,16 +832,15 @@ export default function DashboardPage() {
                       <div className="mt-5 pt-3.5 border-t border-sky-800/80 grid grid-cols-2 gap-2 text-xs">
                         <div>
                           <span className="text-sky-300/80 text-[10px] block uppercase font-bold">Batas Target Unit</span>
-                          <strong className="text-white">Rp {(targetSaldo / 1e6).toFixed(0)} Jt</strong>
+                          <strong className="text-white">Rp {targetSaldo.toLocaleString("id-ID")}</strong>
                         </div>
                         <div className="text-right">
                           <span className="text-sky-300/80 text-[10px] block uppercase font-bold">Sisa Tunggakan</span>
-                          <strong className="text-amber-300">Rp {(saldoSimulasi / 1e9).toFixed(2)} M</strong>
+                          <strong className="text-amber-300">Rp {saldoSimulasi.toLocaleString("id-ID")}</strong>
                         </div>
                       </div>
                     </div>
 
-                    {/* Card Dengan KCIC */}
                     <div className="lg:col-span-4 bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs flex flex-col justify-between">
                       <div>
                         <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 mb-3">
@@ -804,12 +863,11 @@ export default function DashboardPage() {
                       </div>
 
                       <div className="mt-4 pt-3 border-t border-slate-100 grid grid-cols-2 text-xs text-slate-600 bg-slate-50/70 p-2 rounded-xl">
-                        <div>AMR: <strong>Rp {((activeData.denganKcic?.amrRp || 0) / 1e6).toFixed(1)} Jt</strong></div>
-                        <div className="text-right">Non-AMR: <strong>Rp {((activeData.denganKcic?.nonAmrRp || 0) / 1e6).toFixed(1)} Jt</strong></div>
+                        <div>AMR: <strong>Rp {(activeData.denganKcic?.amrRp || 0).toLocaleString("id-ID")}</strong></div>
+                        <div className="text-right">Non-AMR: <strong>Rp {(activeData.denganKcic?.nonAmrRp || 0).toLocaleString("id-ID")}</strong></div>
                       </div>
                     </div>
 
-                    {/* Card Tanpa KCIC */}
                     <div className="lg:col-span-4 bg-white rounded-2xl p-5 border border-slate-200 shadow-2xs flex flex-col justify-between">
                       <div>
                         <div className="flex items-center justify-between border-b border-slate-100 pb-2.5 mb-3">
@@ -832,8 +890,8 @@ export default function DashboardPage() {
                       </div>
 
                       <div className="mt-4 pt-3 border-t border-slate-100 grid grid-cols-2 text-xs text-slate-600 bg-slate-50/70 p-2 rounded-xl">
-                        <div>AMR: <strong>Rp {((activeData.tanpaKcic?.amrRp || 0) / 1e6).toFixed(1)} Jt</strong></div>
-                        <div className="text-right">Non-AMR: <strong>Rp {((activeData.tanpaKcic?.nonAmrRp || 0) / 1e6).toFixed(1)} Jt</strong></div>
+                        <div>AMR: <strong>Rp {(activeData.tanpaKcic?.amrRp || 0).toLocaleString("id-ID")}</strong></div>
+                        <div className="text-right">Non-AMR: <strong>Rp {(activeData.tanpaKcic?.nonAmrRp || 0).toLocaleString("id-ID")}</strong></div>
                       </div>
                     </div>
                   </div>
@@ -863,7 +921,7 @@ export default function DashboardPage() {
                                 {t.label}
                               </span>
                               <div className="text-base font-black text-slate-900 mt-2">
-                                Rp {(val.rp / 1e6).toFixed(1)} Jt
+                                Rp {val.rp.toLocaleString("id-ID")}
                               </div>
                               <span className="text-[11px] text-slate-500">{val.plgn} Pelanggan</span>
                             </div>
@@ -875,7 +933,6 @@ export default function DashboardPage() {
 
                   {/* BENTO GRID ROW 3: TABEL PEMANTAUAN BULANAN & LEADERBOARD REGU */}
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-                    {/* Perbandingan Antar-Bulan (Kolom Tanpa-KCIC Resmi Ditiadakan) */}
                     <div className="lg:col-span-7 bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col justify-between">
                       <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
                         <div>
@@ -883,7 +940,7 @@ export default function DashboardPage() {
                             Perbandingan & Rata-Rata Tagihan Antar Bulan
                           </h3>
                           <p className="text-[11px] text-slate-400 mt-0.5">
-                            Polaritas Negatif: <b>2 - (Realisasi Dengan KCIC : Target)</b> [Target Rp {(targetSaldo / 1e6).toFixed(0)} Jt]
+                            Polaritas Negatif: <b>2 - (Realisasi Dengan KCIC : Target)</b> [Target Rp {targetSaldo.toLocaleString("id-ID")}]
                           </p>
                         </div>
                       </div>
@@ -947,8 +1004,8 @@ export default function DashboardPage() {
                       </div>
                     </div>
 
-                    {/* Peringkat Beban Per Regu */}
-                    <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col justify-between">
+                    {/* Peringkat Beban Per Regu (Menempel rapi di bagian atas) */}
+                    <div className="lg:col-span-5 bg-white rounded-2xl border border-slate-200 shadow-2xs overflow-hidden flex flex-col justify-start">
                       <div className="px-5 py-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <Trophy className="w-4 h-4 text-amber-500" />
@@ -959,7 +1016,7 @@ export default function DashboardPage() {
                         <span className="text-[11px] text-slate-400">Tertinggi ke Terendah</span>
                       </div>
 
-                      <div className="overflow-x-auto">
+                      <div className="overflow-x-auto flex-1">
                         <table className="w-full text-xs text-left">
                           <thead className="bg-slate-50/80 text-slate-600 font-bold border-b border-slate-100">
                             <tr>
@@ -1110,7 +1167,7 @@ export default function DashboardPage() {
                             <div className="text-xs text-slate-800 leading-relaxed">
                               {diffTanpaKcicRp > 0 ? (
                                 <>
-                                  Tunggakan reguler mengalami kenaikan sebesar{" "}
+                                  Tunggakan pelanggan reguler mengalami kenaikan sebesar{" "}
                                   <b className="text-rose-600">Rp {diffTanpaKcicRp.toLocaleString("id-ID")}</b> (+{pctTanpaKcicRp.toFixed(1)}%).
                                 </>
                               ) : (
@@ -1303,7 +1360,7 @@ export default function DashboardPage() {
                           onClick={() => handleToggleSort("PETUGAS")}
                         >
                           <div className="flex items-center justify-center gap-1">
-                            <span>Petugas</span>
+                            <span>Kode Anggota</span>
                             <ArrowUpDown className="w-3 h-3 text-slate-400" />
                           </div>
                         </th>

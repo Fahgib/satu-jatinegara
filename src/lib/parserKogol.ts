@@ -10,6 +10,8 @@ export interface PelangganTunggakan {
   rbm: string;
   regu: string;
   idPetugas: string;
+  kodeAnggota?: string;
+  kodePerorangan?: string;
 }
 
 export interface RekapMetrik {
@@ -31,7 +33,8 @@ export interface HasilKogol {
   semuaPelanggan: PelangganTunggakan[];
   rekapTarif: Record<string, { plgn: number; rp: number }>;
   daftarRegu: string[];
-  daftarPetugas: { idPetugas: string; regu: string }[];
+  daftarPetugas: { idPetugas: string; regu: string; kodeAnggota?: string }[];
+  peringkatRegu: { regu: string; totalRp: number; totalPlgn: number }[];
 }
 
 const NAMA_BULAN: Record<string, string> = {
@@ -49,8 +52,7 @@ const NAMA_BULAN: Record<string, string> = {
   "12": "Desember",
 };
 
-// === DAFTAR IDPEL RESMI KCIC ===
-// Hanya IDPEL berikut yang dianggap pelanggan KCIC. Di luar daftar ini = NON-KCIC.
+// Daftar IDPEL resmi KCIC (Di luar daftar ini = NON-KCIC)
 const DAFTAR_IDPEL_KCIC = new Set<string>([
   "547104923302",
   "547104923298",
@@ -59,8 +61,7 @@ const DAFTAR_IDPEL_KCIC = new Set<string>([
   "547104960177",
 ]);
 
-// === DAFTAR KODE REGU YANG VALID ===
-// Kode regu selalu 2 karakter, diambil dari digit ke-4 & ke-5 pada No. RBM (format HAA + REGU + PERORANGAN + ...)
+// Daftar kode regu yang valid (2 karakter dari digit ke-4 & 5 RBM)
 const DAFTAR_REGU_VALID = new Set<string>(["AA", "AM", "BA", "CA", "DA", "MR"]);
 
 export const parseExcelKogolBuffer = (
@@ -75,34 +76,38 @@ export const parseExcelKogolBuffer = (
   let tahun = "2026";
   let bulan = "08";
 
-  const cleanName = fileName.toLowerCase();
+  // Pengamanan: pastikan fileName selalu berupa string
+  const cleanName = String(fileName || "").toLowerCase();
   const matchFile = cleanName.match(/(20\d{2})(0[1-9]|1[0-2])/);
+
+  const listBulan = [
+    { nama: "jan", kode: "01" },
+    { nama: "feb", kode: "02" },
+    { nama: "mar", kode: "03" },
+    { nama: "apr", kode: "04" },
+    { nama: "mei", kode: "05" },
+    { nama: "may", kode: "05" },
+    { nama: "jun", kode: "06" },
+    { nama: "jul", kode: "07" },
+    { nama: "agu", kode: "08" },
+    { nama: "aug", kode: "08" },
+    { nama: "sep", kode: "09" },
+    { nama: "okt", kode: "10" },
+    { nama: "oct", kode: "10" },
+    { nama: "nov", kode: "11" },
+    { nama: "des", kode: "12" },
+    { nama: "dec", kode: "12" },
+  ];
 
   if (matchFile) {
     tahun = matchFile[1];
     bulan = matchFile[2];
-  } else {
-    const listBulan = [
-      { nama: "jan", kode: "01" },
-      { nama: "feb", kode: "02" },
-      { nama: "mar", kode: "03" },
-      { nama: "apr", kode: "04" },
-      { nama: "mei", kode: "05" },
-      { nama: "jun", kode: "06" },
-      { nama: "jul", kode: "07" },
-      { nama: "agu", kode: "08" },
-      { nama: "sep", kode: "09" },
-      { nama: "okt", kode: "10" },
-      { nama: "nov", kode: "11" },
-      { nama: "des", kode: "12" },
-    ];
+  } else if (cleanName) {
     const matchTeks = listBulan.find((b) => cleanName.includes(b.nama));
     if (matchTeks) bulan = matchTeks.kode;
   }
 
-  const labelPeriode = `${NAMA_BULAN[bulan] || "Agustus"} ${tahun}`;
-
-  // 1. CARI BARIS HEADER KOLOM
+  // Cari Baris Header Kolom
   let headerRowIndex = -1;
   let idxIdpel = -1;
   let idxNama = -1;
@@ -117,6 +122,19 @@ export const parseExcelKogolBuffer = (
 
     const rowStr = row.map((cell) => String(cell || "").trim().toUpperCase());
 
+    // Deteksi bulan tambahan dari teks header jika dari nama berkas belum terbaca
+    if (bulan === "08" && !matchFile) {
+      const fullRowText = rowStr.join(" ").toLowerCase();
+      const matchHeaderBulan = listBulan.find((b) => fullRowText.includes(b.nama));
+      if (matchHeaderBulan) {
+        bulan = matchHeaderBulan.kode;
+      }
+      const matchYear = fullRowText.match(/(20\d{2})/);
+      if (matchYear) {
+        tahun = matchYear[1];
+      }
+    }
+
     const hasIdpel = rowStr.findIndex(
       (h) => h.includes("IDPEL") || h.includes("ID PEL") || h.includes("NO REK") || h.includes("NOREK")
     );
@@ -127,7 +145,6 @@ export const parseExcelKogolBuffer = (
       idxIdpel = hasIdpel;
       idxNama = hasNama;
 
-      // Cari kolom No RBM
       idxRbm = rowStr.findIndex(
         (h) =>
           h.includes("RBM") ||
@@ -153,6 +170,7 @@ export const parseExcelKogolBuffer = (
     }
   }
 
+  const labelPeriode = `${NAMA_BULAN[bulan] || "Agustus"} ${tahun}`;
   const startIndex = headerRowIndex !== -1 ? headerRowIndex + 1 : 1;
 
   let nonAmrCount = 0;
@@ -165,6 +183,7 @@ export const parseExcelKogolBuffer = (
   const semuaPelanggan: PelangganTunggakan[] = [];
   const setRegu = new Set<string>();
   const mapPetugas = new Map<string, string>();
+  const mapPeringkatRegu = new Map<string, { totalRp: number; totalPlgn: number }>();
 
   const rekapTarif: Record<string, { plgn: number; rp: number }> = {
     R: { plgn: 0, rp: 0 },
@@ -179,7 +198,6 @@ export const parseExcelKogolBuffer = (
     const row = rows[i];
     if (!row || row.length < 3) continue;
 
-    // ID Pelanggan
     let idpel = "";
     if (idxIdpel !== -1 && row[idxIdpel]) {
       idpel = String(row[idxIdpel]).trim();
@@ -197,10 +215,8 @@ export const parseExcelKogolBuffer = (
       continue;
     }
 
-    // Normalisasi IDPEL (hanya digit) untuk pencocokan yang aman terhadap daftar KCIC
     const idpelBersih = idpel.replace(/\D/g, "");
-
-    const kodeMr = String(row[3] || "").trim().toUpperCase();
+    const kodeMr = String(idxMr !== -1 && row[idxMr] ? row[idxMr] : row[3] || "").trim().toUpperCase();
     const namaPlgn = String(
       (idxNama !== -1 ? row[idxNama] : null) || row[4] || row[2] || ""
     ).trim().toUpperCase();
@@ -221,13 +237,12 @@ export const parseExcelKogolBuffer = (
     }
     if (!tarifDaya) tarifDaya = "TARIF REG";
 
-    // EKSTRAKSI NO RBM (Pola: HAAMRTI..., HAAAABF..., atau format RBM lainnya)
+    // Ekstraksi No RBM
     let rbmRaw = "";
     if (idxRbm !== -1 && row[idxRbm]) {
       rbmRaw = String(row[idxRbm]).trim().toUpperCase();
     }
 
-    // Jika header tidak ketemu, scan baris mencari sel yang berawalan HAA atau pola kode RBM PLN
     if (!rbmRaw || rbmRaw === "-") {
       for (let c = 0; c < row.length; c++) {
         const valStr = String(row[c] || "").trim().toUpperCase();
@@ -238,24 +253,20 @@ export const parseExcelKogolBuffer = (
       }
     }
 
-    // === EKSTRAKSI REGU & KODE PETUGAS (Orang) ===
-    // Format No. RBM: H A A [REGU: 2 huruf] [PERORANGAN: 1 huruf] [angka rute...]
-    // Contoh: H A A M R T I 0 5 3 0 3
-    //   index: 0 1 2 3 4 5 6 7 8 9 ...
-    //   Regu           = karakter index 3-4 -> "MR"
-    //   Kode perorangan = karakter index 5   -> "T"
-    //   Kode petugas lengkap (regu+perorangan) = index 3-5 -> "MRT"
+    // Ekstraksi Regu & Kode Petugas
     let regu = "-";
     let idPetugas = "-";
+    let kodePerorangan = "-";
 
     if (rbmRaw.length >= 6) {
-      const reguCandidate = rbmRaw.substring(3, 5); // 2 huruf regu, mis. "MR"
-      const kodePeroranganCandidate = rbmRaw.charAt(5); // 1 huruf kode perorangan, mis. "T"
-      const kodePetugasCandidate = rbmRaw.substring(3, 6); // gabungan regu + perorangan, mis. "MRT"
+      const reguCandidate = rbmRaw.substring(3, 5);
+      const kodePeroranganCandidate = rbmRaw.charAt(5);
+      const kodePetugasCandidate = rbmRaw.substring(3, 6);
 
       if (DAFTAR_REGU_VALID.has(reguCandidate)) {
         regu = reguCandidate;
         idPetugas = kodePetugasCandidate;
+        kodePerorangan = kodePeroranganCandidate;
 
         setRegu.add(regu);
         mapPetugas.set(idPetugas, regu);
@@ -280,8 +291,6 @@ export const parseExcelKogolBuffer = (
     }
 
     const isAmr = kodeMr === "MR" || String(row[3] || "").toUpperCase() === "MR";
-    // KCIC ditentukan HANYA berdasarkan kecocokan IDPEL dengan daftar resmi.
-    // Di luar daftar ini selalu dianggap NON-KCIC, apa pun nama pelanggannya.
     const isKcic = DAFTAR_IDPEL_KCIC.has(idpelBersih);
 
     let kategori: "AMR" | "NON-AMR" | "KCIC" = "NON-AMR";
@@ -321,15 +330,28 @@ export const parseExcelKogolBuffer = (
         rbm: rbmRaw || "-",
         regu,
         idPetugas,
+        kodeAnggota: idPetugas,
+        kodePerorangan,
       });
+
+      if (regu !== "-") {
+        const existing = mapPeringkatRegu.get(regu) || { totalRp: 0, totalPlgn: 0 };
+        existing.totalRp += rp;
+        existing.totalPlgn += 1;
+        mapPeringkatRegu.set(regu, existing);
+      }
     }
   }
 
   semuaPelanggan.sort((a, b) => b.rpTunggakan - a.rpTunggakan);
 
   const daftarPetugas = Array.from(mapPetugas.entries())
-    .map(([id, rg]) => ({ idPetugas: id, regu: rg }))
+    .map(([id, rg]) => ({ idPetugas: id, regu: rg, kodeAnggota: id }))
     .sort((a, b) => a.idPetugas.localeCompare(b.idPetugas));
+
+  const peringkatRegu = Array.from(mapPeringkatRegu.entries())
+    .map(([rg, data]) => ({ regu: rg, totalRp: data.totalRp, totalPlgn: data.totalPlgn }))
+    .sort((a, b) => b.totalRp - a.totalRp);
 
   return {
     periode: labelPeriode,
@@ -359,5 +381,6 @@ export const parseExcelKogolBuffer = (
     rekapTarif,
     daftarRegu: Array.from(setRegu).sort(),
     daftarPetugas,
+    peringkatRegu,
   };
 };

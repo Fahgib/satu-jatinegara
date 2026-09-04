@@ -8,7 +8,7 @@ export const downloadPresentationPptx = (
 ) => {
   const pres = new pptxgen();
 
-  // Dimensi paten Full HD Widescreen 16:9
+  // Dimensi Full HD Widescreen 16:9
   pres.defineLayout({ name: "FULL_HD", width: 13.33, height: 7.5 });
   pres.layout = "FULL_HD";
 
@@ -20,7 +20,6 @@ export const downloadPresentationPptx = (
   const C_CYAN = "00A3E0";
   const C_ORANGE = "EA580C";
   const C_YELLOW = "FFD100";
-  const C_GREEN = "16A34A";
   const C_WHITE = "FFFFFF";
   const C_CARD_BG = "FFFFFF";
   const C_CARD_BORDER = "CBD5E1";
@@ -32,17 +31,34 @@ export const downloadPresentationPptx = (
   const FONT = "Arial";
 
   // ==============================================================
-  // HELPER
+  // HELPER & KALKULASI FORMULA POLARITAS NEGATIF KUMULATIF
   // ==============================================================
   const rp = (n: number) => `Rp ${Math.round(n || 0).toLocaleString("id-ID")}`;
   const num = (n: number) => (n || 0).toLocaleString("id-ID");
 
-  const targetSaldo = 982000000;
-  const totalAmrDengan = data.denganKcic.amrRp || 0;
-  const totalDengan = data.denganKcic.totalRp || 1;
+  const TARGET_SALDO = 982878731; // Target resmi unit UP3 Jatinegara
+
+  // Hitung rata-rata kumulatif hingga bulan data aktif (sama persis dengan dashboard)
+  let rataKumulatif = data.denganKcic?.totalRp || 0;
+  if (allHistory && Object.keys(allHistory).length > 0) {
+    const sortedKeys = Object.keys(allHistory).sort();
+    const currentKey = Object.keys(allHistory).find((k) => allHistory[k]?.periode === data.periode) || sortedKeys[sortedKeys.length - 1];
+    const currentIdx = sortedKeys.indexOf(currentKey);
+    const slicedKeys = sortedKeys.slice(0, currentIdx !== -1 ? currentIdx + 1 : sortedKeys.length);
+    const pembagi = Math.max(1, slicedKeys.length);
+
+    const totalKumulatif = slicedKeys.reduce((acc, k) => acc + (allHistory[k]?.denganKcic?.totalRp || 0), 0);
+    rataKumulatif = totalKumulatif / pembagi;
+  }
+
+  // FORMULA RESMI POLARITAS NEGATIF: 2 - (Realisasi : Target)
+  const capaianPersenVal = (2 - (rataKumulatif / TARGET_SALDO)) * 100;
+  const capaianPersen = capaianPersenVal.toFixed(1);
+  const capaianBuruk = capaianPersenVal < 100;
+
+  const totalAmrDengan = data.denganKcic?.amrRp || 0;
+  const totalDengan = data.denganKcic?.totalRp || 1;
   const persenAmr = ((totalAmrDengan / totalDengan) * 100).toFixed(1);
-  const capaianPersen = (((targetSaldo - data.denganKcic.totalRp) / targetSaldo) * 100).toFixed(1);
-  const capaianNaik = data.denganKcic.totalRp > targetSaldo; // true = melebihi target (buruk)
 
   // ==============================================================
   // SLIDE TUNGGAL: DASHBOARD EKSEKUTIF SATU HALAMAN
@@ -50,7 +66,7 @@ export const downloadPresentationPptx = (
   const slide = pres.addSlide();
   slide.background = { color: C_BG };
 
-  // --- aksen garis kiri tipis (identitas korporat) ---
+  // Aksen garis kiri tipis (identitas PLN)
   slide.addShape(pres.ShapeType.rect, { x: 0, y: 0, w: 0.1, h: 7.5, fill: { color: C_YELLOW }, line: { color: C_YELLOW } });
   slide.addShape(pres.ShapeType.rect, { x: 0.1, y: 0, w: 0.1, h: 7.5, fill: { color: C_CYAN }, line: { color: C_CYAN } });
 
@@ -71,16 +87,16 @@ export const downloadPresentationPptx = (
     { x: 1.0, y: 0.74, w: 7.3, h: 0.3, fontSize: 8.5, color: C_TEXT_LIGHT, fontFace: FONT, bold: true }
   );
 
-  // Kotak capaian KPI di kanan header
+  // Kotak capaian KPI di kanan header (Formula Polaritas Negatif)
   slide.addShape(pres.ShapeType.roundRect, {
     x: 8.55, y: 0.42, w: 3.83, h: 0.62,
-    fill: { color: capaianNaik ? "3F1212" : "0F2E1C" }, line: { color: C_CYAN, width: 0.75 },
+    fill: { color: capaianBuruk ? "3F1212" : "0F2E1C" }, line: { color: C_CYAN, width: 0.75 },
   });
   slide.addText(
     [
       { text: "CAPAIAN TARGET:  ", options: { fontSize: 9.5, bold: true, color: C_TEXT_LIGHT } },
-      { text: `${capaianPersen}%\n`, options: { fontSize: 13, bold: true, color: capaianNaik ? "F87171" : "4ADE80" } },
-      { text: `Target: Rp ${(targetSaldo / 1e6).toFixed(0)} Jt   |   Realisasi: Rp ${(data.denganKcic.totalRp / 1e9).toFixed(2)} M`, options: { fontSize: 7.5, color: "BAE6FD" } },
+      { text: `${capaianPersen}%\n`, options: { fontSize: 13, bold: true, color: capaianBuruk ? "F87171" : "4ADE80" } },
+      { text: `Target: Rp ${(TARGET_SALDO / 1e6).toFixed(0)} Jt   |   Realisasi: Rp ${(data.denganKcic.totalRp / 1e9).toFixed(2)} M`, options: { fontSize: 7.5, color: "BAE6FD" } },
     ],
     { x: 8.7, y: 0.46, w: 3.55, h: 0.55, fontFace: FONT, valign: "top" }
   );
@@ -123,7 +139,7 @@ export const downloadPresentationPptx = (
   buildSummaryCard(6.83, "PERSPEKTIF 2: BEBAN REGULER (TANPA KCIC)", C_ORANGE, "FFEDD5", data.tanpaKcic);
 
   // ------------------------------------------------------------
-  // 3) BARIS CHART: 2 DONUT + 1 TREN/PERBANDINGAN (y: 2.65 - 4.65)
+  // 3) BARIS CHART: 2 DONUT + 1 TREN (y: 2.65 - 4.65)
   // ------------------------------------------------------------
   const chartCardY = 2.65;
   const chartCardH = 2.0;
@@ -156,7 +172,7 @@ export const downloadPresentationPptx = (
     }
   );
 
-  // Panel 3: tren multi-periode (jika ada histori) atau perbandingan periode berjalan
+  // Panel 3: tren multi-periode
   slide.addShape(pres.ShapeType.roundRect, { x: 8.3, y: chartCardY, w: 4.23, h: chartCardH, fill: { color: C_CARD_BG }, line: { color: C_CARD_BORDER, width: 1 } });
 
   const hasHistory = allHistory && Object.keys(allHistory).length > 1;
@@ -196,9 +212,8 @@ export const downloadPresentationPptx = (
   }
 
   // ------------------------------------------------------------
-  // 4) TABEL TOP PELANGGAN + RINGKASAN EKSEKUTIF (y: 4.75 - 6.95)
+  // 4) TABEL TOP PELANGGAN + RINGKASAN STRATEGIS (y: 4.75 - 6.95)
   // ------------------------------------------------------------
-  // --- Tabel (kiri) ---
   slide.addShape(pres.ShapeType.roundRect, { x: 0.8, y: 4.75, w: 7.3, h: 2.2, fill: { color: C_CARD_BG }, line: { color: C_CARD_BORDER, width: 1 } });
   slide.addText("PRIORITAS PENAGIHAN: TOP 5 PELANGGAN PARETO", {
     x: 0.95, y: 4.85, w: 7.0, h: 0.25, fontSize: 9.5, bold: true, color: C_PLN_BLUE, fontFace: FONT,
@@ -244,7 +259,7 @@ export const downloadPresentationPptx = (
     });
   }
 
-  // --- Ringkasan eksekutif (kanan) ---
+  // Ringkasan eksekutif (kanan)
   slide.addShape(pres.ShapeType.roundRect, { x: 8.25, y: 4.75, w: 4.28, h: 2.2, fill: { color: C_CARD_BG }, line: { color: C_CARD_BORDER, width: 1 } });
   slide.addText("RINGKASAN & STRATEGI EKSEKUTIF", {
     x: 8.4, y: 4.85, w: 4.0, h: 0.25, fontSize: 9.5, bold: true, color: C_TEXT_MAIN, fontFace: FONT,
@@ -253,7 +268,7 @@ export const downloadPresentationPptx = (
   slide.addText(
     [
       { text: "📌 ", options: { fontSize: 8 } },
-      { text: `Realisasi saldo Rp ${(data.denganKcic.totalRp / 1e9).toFixed(2)} M vs target Rp ${(targetSaldo / 1e6).toFixed(0)} Jt (deviasi ${capaianPersen}%).\n\n`, options: { fontSize: 8, color: C_TEXT_MAIN } },
+      { text: `Pencapaian target kumulatif: ${capaianPersen}% (Realisasi Rp ${(data.denganKcic.totalRp / 1e9).toFixed(2)} M vs target Rp ${(TARGET_SALDO / 1e6).toFixed(0)} Jt).\n\n`, options: { fontSize: 8, color: C_TEXT_MAIN } },
       { text: "⚠️ ", options: { fontSize: 8 } },
       { text: `${persenAmr}% nominal saldo terkonsentrasi pada kategori AMR — perlu penagihan intensif.\n\n`, options: { fontSize: 8, color: C_TEXT_MAIN } },
       { text: "🚆 ", options: { fontSize: 8 } },
@@ -263,7 +278,7 @@ export const downloadPresentationPptx = (
   );
 
   // ------------------------------------------------------------
-  // Simpan file
+  // Unduh Berkas
   // ------------------------------------------------------------
   pres.writeFile({
     fileName: `SATU_Jatinegara_${mode}_${data.periode.replace(/\s+/g, "_")}.pptx`,
